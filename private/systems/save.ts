@@ -19,8 +19,8 @@ import { ABYSS_HANDLES } from "../abyss/handles.js";
 import { isInAbyss, setInAbyss } from "../abyss/abyss-tabs.js";
 import { getAbyssAreaCompletions, getAbyssDepth, getAbyssRewardAreaCompletions, getAbyssRunDepth, getAbyssRunTime, getAbyssRunsCompleted, getHighestAbyssDepthCompleted, getLastCompletedAbyssArea, isAbyssRunActive, setAbyssAreaCompletions, setAbyssDepth, setAbyssRewardAreaCompletions, setAbyssRunActive, setAbyssRunDepth, setAbyssRunsCompleted, setAbyssRunTime, setHighestAbyssDepthCompleted, setLastCompletedAbyssArea } from "../abyss/abyss.js";
 
-const STORAGE_KEY = "saveData";
-const RECOVERY_STORAGE_KEY = "saveDataRecovery";
+const STORAGE_KEY = "saveData" + (window.location.href.toLowerCase().includes("dev") ? "Dev" : "");
+const RECOVERY_STORAGE_KEY = STORAGE_KEY + "Recovery";
 const SAVE_PREFIX = "TheManaParadoxSaveFormat";
 const CURRENT_SAVE_VERSION = "032";
 const SAVE_SUFFIX = "EndOfSaveData";

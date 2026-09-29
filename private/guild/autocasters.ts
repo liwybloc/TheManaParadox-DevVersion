@@ -204,15 +204,17 @@ export function casterAssignedToTask(task: i32): i32 {
     return UNASSIGNED;
 }
 
-export function updateAutocasters(deltaSeconds: f64): void {
+export function updateAutocasters(deltaSeconds: f64, chargeWages: bool): void {
     if (!autocastersEnabled || deltaSeconds <= 0) return;
-    for (let caster: i32 = 0; caster < MAX_AUTOCASTERS; caster++) {
-        if (!isAutocasterHired(caster)) continue;
-        updateWage(caster, deltaSeconds);
+    if (chargeWages) {
+        for (let caster: i32 = 0; caster < MAX_AUTOCASTERS; caster++) {
+            if (!isAutocasterHired(caster)) continue;
+            updateWage(caster, deltaSeconds);
+        }
     }
     for (let task: i32 = 0; task < AUTOCASTER_TASK_COUNT; task++) {
         const caster = casterAssignedToTask(task);
-        if (caster >= 0) updateAction(caster, task, deltaSeconds);
+        if (caster >= 0) updateAction(caster, task, deltaSeconds, chargeWages);
     }
 }
 
@@ -262,7 +264,7 @@ function updateWage(caster: i32, deltaSeconds: f64): void {
     subUS(player.coins, wage);
 }
 
-function updateAction(caster: i32, task: i32, deltaSeconds: f64): void {
+function updateAction(caster: i32, task: i32, deltaSeconds: f64, chargeWages: bool): void {
     actionCooldowns[caster] = Math.max(0, actionCooldowns[caster] - deltaSeconds);
     if (actionCooldowns[caster] > 0) return;
     let acted = false;
@@ -298,7 +300,7 @@ function updateAction(caster: i32, task: i32, deltaSeconds: f64): void {
         / tierSpeed
         / achievementSpeed
         / (2 ** (assignedCasterCount(task) - 1));
-    recordTaskWork(task);
+    if (chargeWages) recordTaskWork(task);
 }
 
 function assignedCasterCount(task: i32): i32 {

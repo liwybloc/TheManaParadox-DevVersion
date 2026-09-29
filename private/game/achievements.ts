@@ -69,6 +69,11 @@ export const ACHIEVEMENTS = [
     { id: "achievement_shatter15crystal", circle: 2, number: 48, title: "Into the Abyss", description: "Shatter the first 15 Crystals" },
     { id: "achievement_loopabyss", circle: 2, number: 49, title: "Déjà vu", description: "Loop the abyss" },
     { id: "achievement_defeatbtier", circle: 2, number: 55, title: "B yourself!", description: "Defeat a B tier enemy"},
+    { id: "achievement_firstresonance", circle: 2, number: 56, title: "A Distant Echo", description: "Unlock the first Resonance Tower." },
+    { id: "achievement_allresonance", circle: 2, number: 57, title: "Ninefold resonance", description: "Unlock the ninth Resonance Tower." },
+    { id: "achievement_fullsonic", circle: 2, number: 58, title: "Perfect Pitch", description: "Reach 1.000000 Sonic Value." },
+    { id: "achievement_depth5000", circle: 2, number: 59, title: "Stick it where the sun don't shine", description: "Complete an Abyss run at 5,000 m or deeper." },
+    { id: "achievement_depth10000", circle: 2, number: 60, title: "Crushing Infinity", description: "Complete an Abyss run at 10,000 m or deeper." },
 ];
 
 export const PROGRESSION_ACHIEVEMENT_ORDER = [
@@ -81,7 +86,8 @@ export const PROGRESSION_ACHIEVEMENT_ORDER = [
 
     25, 30, 40, 43, 44,
     45, 46, 47, 51, 53, 
-    54, 50, 48, 49, 55,
+    54, 50, 55, 48, 56,
+    59, 57, 49, 60, 58,
 ];
 
 declare const player: Player;
@@ -90,7 +96,7 @@ declare const scratch: Scratch;
 /** [WASM] */
 
 const TIER_ONE_ACHIEVEMENT_COUNT: i32 = 5;
-const ACHIEVEMENT_COUNT: i32 = 55;
+const ACHIEVEMENT_COUNT: i32 = 60;
 const unlockedAchievements = new StaticArray<u8>(ACHIEVEMENT_COUNT);
 let tierOneRewardsChanged = false;
 let circularHabitsRewardPending = false;

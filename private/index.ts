@@ -2,6 +2,7 @@ import { createApp } from "vue";
 import App from "@ui/App.vue";
 import { namedWasm } from "../generated/_wasm$globals.js";
 import "./systems/background.js";
+import "./abyss/handles.js";
 import "./core/player.js";
 import "./core/scratch.js";
 import "./game/achievements.js";

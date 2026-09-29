@@ -3,9 +3,11 @@ import { crystalEffectHandle, crystalRewardHandle, hasCompletedCrystal, isCrysta
 import { unlockTierOneAchievement } from "./achievements.js";
 import type { Player } from "../core/player.js";
 import type { Scratch } from "../core/scratch.js";
+import "../abyss/handles.js";
+import { resonanceTowerEffectHandle } from "../abyss/abyss.js";
 
 export const MEMORY_MILESTONES = [
-    1, 3, 5, 10, 25, 50, 75, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 50_000, 100_000,
+    1, 3, 5, 10, 25, 50, 75, 100, 250, 500, 1_000, 2_500, 50_000, 250_000, 1_000_000, 10_000_000,
 ] as const;
 
 export const MEMORY_MILESTONE_REWARDS: Readonly<Record<number, string>> = {
@@ -19,6 +21,8 @@ export const MEMORY_MILESTONE_REWARDS: Readonly<Record<number, string>> = {
     100: "You gain ×10 more mana inside of crystals",
     250: "Increase start of exponential cost scaling of producers based on memories (Currently: +{memoryCostStartAdd})",
     500: "Unlock Remembrance Upgrade Tree",
+    1_000: "The Abyss effects scale 5% slower",
+    2_500: "Abyssal Resonance towers scale 25% faster",
 };
 
 declare const scratch: Scratch;
@@ -34,12 +38,16 @@ export function getTotalMemories(): i32 {
 }
 
 export function setTotalMemories(value: i32): void {
-    totalMemories = value < 0 ? 0 : value;
+    totalMemories = value < 0 ? 0 : !hasCompletedCrystal(14) && value > 999 ? 999 : value;
     if (totalMemories >= 500) unlockTierOneAchievement(52);
 }
 
 export function hasMemoryMilestone(requirement: i32): bool {
     return totalMemories >= requirement;
+}
+
+export function isMemoryLimitReached(): bool {
+    return totalMemories >= 999 && !hasCompletedCrystal(14);
 }
 
 export function isFocusing(): bool {
@@ -93,7 +101,9 @@ export function memoryProductionMultiplierHandle(): i32 {
         return scratch.memoryProductionMultiplier;
     }
     writeNumber(scratch.memoryProductionExponent, totalMemories + 1);
-    powInto(scratch.memoryProductionMultiplier, 2, scratch.memoryProductionExponent);
+    writeNumber(scratch.memoryCrystalMultiplier, 2);
+    mulUS(scratch.memoryCrystalMultiplier, resonanceTowerEffectHandle(4, 0.1));
+    powInto(scratch.memoryProductionMultiplier, scratch.memoryCrystalMultiplier, scratch.memoryProductionExponent);
     if (isSpecificCrystalActive(9)) applyCrystal10MemoryReward(crystalEffectHandle(9, 0));
     if (hasCompletedCrystal(9)) applyCrystal10MemoryReward(crystalRewardHandle(9, 0));
     return scratch.memoryProductionMultiplier;
@@ -133,7 +143,12 @@ export function resolveFocusedCondense(roll: f64, chance: f64): i32 {
     if (roll < chance) memoriesGained++;
     if (memoriesGained === 0) return 0;
     memoriesGained *= memoryGainMultiplier();
-    totalMemories += memoriesGained;
+    const previousMemories = totalMemories;
+    totalMemories = !hasCompletedCrystal(14) && totalMemories + memoriesGained > 999
+        ? 999
+        : totalMemories + memoriesGained;
+    memoriesGained = totalMemories - previousMemories;
+    if (memoriesGained === 0) return 0;
     if (totalMemories >= 500) unlockTierOneAchievement(52);
     return memoriesGained;
 }

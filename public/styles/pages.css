@@ -789,3 +789,48 @@ footer {
     grid-template-columns: 1fr;
   }
 }
+
+
+
+.abyss-tab {
+    position: relative;
+    min-height: 100vh;
+}
+.section-title {
+    position: relative;
+    z-index: 1;
+}
+#enter-abyss {
+    position: absolute;
+    z-index: 1;
+    top: 90px;
+    left: 50%;
+    width: min(65.28vw, 65.28vh, calc(100% - 24px));
+    height: min(65.28vw, 65.28vh, calc(100% - 24px));
+    border: 0;
+    padding: 0;
+    background: none;
+    box-shadow: none;
+    outline: none;
+    appearance: none;
+    cursor: pointer;
+    transform: translateX(-50%);
+}
+#abyss-vortex {
+    position: absolute;
+    z-index: 0;
+    top: 90px;
+    left: 50%;
+    width: min(65.28vw, 65.28vh, calc(100% - 24px));
+    height: min(65.28vw, 65.28vh, calc(100% - 24px));
+    pointer-events: none;
+    opacity: 0.96;
+    transform: translateX(-50%);
+}
+#enter-abyss:focus,
+#enter-abyss:focus-visible,
+#enter-abyss:active {
+    border: 0;
+    box-shadow: none;
+    outline: 0;
+}

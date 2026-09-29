@@ -36,6 +36,18 @@ export function formatDecimalCompact(handle: number): string {
     return formatDecimalsCompact([handle])[0];
 }
 
+export function formatNumber(value: number, decimals = 2): string {
+    if (!Number.isFinite(value)) return "Unknown";
+    if (Math.abs(value) >= 1e9) return value.toExponential(decimals).replace("+", "");
+    return formatFixedNumber(value, decimals);
+}
+
+function formatFixedNumber(value: number, decimals: number): string {
+    const [integer, fraction] = value.toFixed(decimals).split(".");
+    const groupedInteger = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return fraction === undefined ? groupedInteger : `${groupedInteger}.${fraction}`;
+}
+
 export function formatDecimalsCompact(handles: readonly number[]): string[] {
     return formatDecimals(handles).map((value) => value.replace(/(\.\d*?[1-9])0+(?=e|$)|\.0+(?=e|$)/, "$1"));
 }
@@ -102,7 +114,7 @@ function formatDecimalComponents(
     if (layer === 0) {
         const value = sign * magnitude;
         if (Math.abs(value) >= 1e9) return value.toExponential(2).replace("+", "");
-        return value.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        return formatFixedNumber(value, decimals);
     }
     const exponent = Math.floor(magnitude);
     const mantissa = Math.pow(10, magnitude - exponent);

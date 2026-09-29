@@ -128,6 +128,7 @@ function connectionKey(connection) {
             <div class="section-title">
                 <h1>Memories</h1>
                 <p>You have remembered {{ memories.remembered }} memor{{ memories.remembered != 1 ? 'ies' : 'y' }}.</p>
+                <p v-if="memories.limited" class="memory-limit-message">A mysterious force is limiting your ability to remember...</p>
             </div>
             <button class="focus-button" type="button" @click="$emit('focus')">
                 <strong>{{ memories.focusing ? "Exit Focus" : "Focus" }}</strong>
@@ -236,6 +237,11 @@ function connectionKey(connection) {
 .focus-button:disabled {
     opacity: 0.55;
     cursor: default;
+}
+
+.memory-limit-message {
+    color: #b9a8d8;
+    font-style: italic;
 }
 
 .memory-milestones {

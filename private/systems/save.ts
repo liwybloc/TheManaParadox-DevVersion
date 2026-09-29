@@ -8,18 +8,21 @@ import { isCourageUnlocked, setCourageUnlocked } from "../game/courage.js";
 import { CONDENSED_HANDLES, CONDENSED_UPGRADE_COUNT, hasCircleTwoCondensedUpgrade, hasCondensed, hasCondensedUpgrade, refreshCondensedUpgradeState, setCircleTwoCondensedUpgrade, setCondensedUpgrade, setHasCondensed } from "../game/condensed.js";
 import { REMEMBRANCE_UPGRADE_COUNT, getMemorials, getTotalMemorialsPurchased, hasRemembranceUpgrade, isRespecRemembranceOnCondense, setMemorials, setRemembranceUpgrade, setRespecRemembranceOnCondense, setTotalMemorialsPurchased } from "../game/remembrance.js";
 import { HANDLES } from "../core/player.js";
-import { applyCondensedResetStartingValues, hasCastSpeedUsedThisCondense, hasSealedMeridianThisReset, refreshMatrixDerivedState, refreshSealedMeridiansDerivedState, setCastSpeedUsedThisCondense, setSealedMeridianThisReset } from "../game/progression.js";
+import { applyCondensedResetStartingValues, getMeditationCasts, hasCastSpeedUsedThisCondense, hasSealedMeridianThisReset, refreshMatrixDerivedState, refreshSealedMeridiansDerivedState, setCastSpeedUsedThisCondense, setMeditationCasts, setSealedMeridianThisReset } from "../game/progression.js";
 import { refreshTierOneDerivedState } from "../game/tier_one.js";
 import { isOfflineProgressEnabled, simulateTime } from "./tick.js";
 import { ensureInventoryPlacements, ensureShopItems, getGuildExperience, getGuildExperienceForQuestRank, getQuestRefreshRemaining, hasActivePotionEffects, hasGuildShopUpgrade, initializeLegacyQuestAvailableMana, isGuildMember, isGuildUnlocked, isQuestSlotLocked, POTION_SPEED_II_TIMER_HANDLES, POTION_SPEED_III_TIMER_HANDLES, POTION_SPEED_TIMER_HANDLES, questDefinitionId, rawInventoryMetadata, rawInventorySlot, refreshPotionEffectState, repairGuildCurrency, resetCombatSpellCosts, setGuildExperience, setGuildExperienceForQuestRank, setGuildMember, setGuildShopUpgrade, setGuildUnlocked, setQuestDefinitionId, setQuestRefreshRemaining, setQuestSlotLocked, setRawInventoryMetadata, setRawInventorySlot, setShopItemCost, setShopItemId, setShopItemRefreshTimer, shopItemCost, shopItemId, shopItemRefreshTimer } from "../guild/guild.js";
 import { equippedItem, setEquippedItem } from "../guild/equipment.js";
 import { AUTOCASTER_HANDLES, autocasterActionCooldown, autocasterAssignment, autocasterCondenseGain, autocasterNameIndex, autocasterPurifyMinimumRelativeMultiplier, autocasterRosterPosition, autocasterTier, autocasterWageTimer, autocasterWorkedThisPeriod, isAutocastersEnabled, producerAutocasterCastsMax, setAutocasterActionCooldown, setAutocasterAssignment, setAutocasterCondenseGain, setAutocasterNameIndex, setAutocasterPurifyMinimumRelativeMultiplier, setAutocasterRosterPosition, setAutocasterTier, setAutocasterWageTimer, setAutocasterWorkedThisPeriod, setAutocastersEnabled, setProducerAutocasterCastsMax } from "../guild/autocasters.js";
 import { MAX_AUTOCASTERS } from "../config/autocasters.js";
+import { ABYSS_HANDLES } from "../abyss/handles.js";
+import { isInAbyss, setInAbyss } from "../abyss/abyss-tabs.js";
+import { getAbyssAreaCompletions, getAbyssDepth, getAbyssRewardAreaCompletions, getAbyssRunDepth, getAbyssRunTime, getAbyssRunsCompleted, getHighestAbyssDepthCompleted, getLastCompletedAbyssArea, isAbyssRunActive, setAbyssAreaCompletions, setAbyssDepth, setAbyssRewardAreaCompletions, setAbyssRunActive, setAbyssRunDepth, setAbyssRunsCompleted, setAbyssRunTime, setHighestAbyssDepthCompleted, setLastCompletedAbyssArea } from "../abyss/abyss.js";
 
 const STORAGE_KEY = "saveData";
 const RECOVERY_STORAGE_KEY = "saveDataRecovery";
 const SAVE_PREFIX = "TheManaParadoxSaveFormat";
-const CURRENT_SAVE_VERSION = "025";
+const CURRENT_SAVE_VERSION = "032";
 const SAVE_SUFFIX = "EndOfSaveData";
 const DECIMAL_BYTES = 13;
 const AUTOSAVE_INTERVAL = 30_000;
@@ -446,13 +449,55 @@ const savedFields025: readonly SaveField[] = [
     ...Array.from({ length: REMEMBRANCE_UPGRADE_COUNT }, (_, index) => booleanSaveField(
         () => hasRemembranceUpgrade(index),
         (purchased) => setRemembranceUpgrade(index, purchased),
-// LILY REMEMBER TO MAKE NEXT STUFF IN SAVEDFIELDS 026!!!! >:(
     )),
-// LILY REMEMBER TO MAKE NEXT STUFF IN SAVEDFIELDS 026!!!! >:(
-// LILY REMEMBER TO MAKE NEXT STUFF IN SAVEDFIELDS 026!!!! >:(
 ];
-// LILY REMEMBER TO MAKE NEXT STUFF IN SAVEDFIELDS 026!!!! >:(
-// LILY REMEMBER TO MAKE NEXT STUFF IN SAVEDFIELDS 026!!!! >:(
+const savedFields026: readonly SaveField[] = [
+    ...savedFields025,
+    decimalSaveField(ABYSS_HANDLES.sonicValue, [0, 0, 0]),
+    booleanSaveField(isInAbyss, setInAbyss),
+    callbackNumberSaveField(getAbyssDepth, setAbyssDepth),
+    callbackNumberSaveField(getHighestAbyssDepthCompleted, setHighestAbyssDepthCompleted, 1_000),
+    callbackNumberSaveField(getAbyssRunTime, setAbyssRunTime),
+    callbackInt32SaveField(getAbyssRunsCompleted, setAbyssRunsCompleted),
+    booleanSaveField(isAbyssRunActive, setAbyssRunActive),
+    callbackNumberSaveField(getAbyssRunDepth, setAbyssRunDepth, 1_000),
+    callbackInt32SaveField(getLastCompletedAbyssArea, setLastCompletedAbyssArea, -1),
+    callbackInt32SaveField(getAbyssAreaCompletions, setAbyssAreaCompletions),
+];
+const savedFields027: readonly SaveField[] = [
+    ...savedFields026,
+    ...Array.from({ length: 1_024 }, (_, area) => callbackUint8SaveField(
+        () => getAbyssRewardAreaCompletions(area),
+        (value) => setAbyssRewardAreaCompletions(area, value),
+    )),
+];
+const savedFields028: readonly SaveField[] = [
+    ...savedFields027,
+    decimalSaveField(ABYSS_HANDLES.potionResonance, [0, 0, 0]),
+    decimalSaveField(ABYSS_HANDLES.matrixResonance, [0, 0, 0]),
+    decimalSaveField(ABYSS_HANDLES.meridianResonance, [0, 0, 0]),
+    decimalSaveField(ABYSS_HANDLES.meditationResonance, [0, 0, 0]),
+];
+const savedFields029: readonly SaveField[] = [
+    ...savedFields028,
+    callbackInt32SaveField(getMeditationCasts, setMeditationCasts),
+];
+const savedFields030: readonly SaveField[] = [
+    ...savedFields029,
+    decimalSaveField(ABYSS_HANDLES.boostResonance, [0, 0, 0]),
+    decimalSaveField(ABYSS_HANDLES.memoryResonance, [0, 0, 0]),
+    decimalSaveField(ABYSS_HANDLES.condenseResonance, [0, 0, 0]),
+    decimalSaveField(ABYSS_HANDLES.purificationResonance, [0, 0, 0]),
+    decimalSaveField(ABYSS_HANDLES.courageResonance, [0, 0, 0]),
+];
+const savedFields031: readonly SaveField[] = [
+    ...savedFields030,
+    ...achievementSaveFields(5, 55),
+];
+const savedFields032: readonly SaveField[] = [
+    ...savedFields031,
+    ...achievementSaveFields(3, 52),
+];
 
 const savedFieldsByVersion: readonly (readonly SaveField[])[] = [
     savedFields001, savedFields002, savedFields003,
@@ -463,8 +508,11 @@ const savedFieldsByVersion: readonly (readonly SaveField[])[] = [
     savedFields016, savedFields017, savedFields018,
     savedFields019, savedFields020, savedFields021,
     savedFields022, savedFields023, savedFields024,
-    savedFields025,
+    savedFields025, savedFields026, savedFields027,
+    savedFields028, savedFields029, savedFields030,
+    savedFields031, savedFields032,
 ];
+const currentSaveFields = savedFields032;
 
 const condenseResetFields: readonly SaveField[] = [
     ...savedFields001,
@@ -491,10 +539,10 @@ const condenseResetFields: readonly SaveField[] = [
 
 export async function exportSave(): Promise<string> {
     lastSaveTimestamp.value = Date.now();
-    const bytes = new Uint8Array(totalByteLength(savedFields025));
+    const bytes = new Uint8Array(totalByteLength(currentSaveFields));
     const view = new DataView(bytes.buffer);
     let offset = 0;
-    for (const field of savedFields025) {
+    for (const field of currentSaveFields) {
         field.write(view, offset);
         offset += field.byteLength;
     }
@@ -546,11 +594,11 @@ async function importFields(encoded: string, fields: readonly SaveField[], compr
     const bytesRaw = base64ToBytes(encoded);
     const bytes = compressed ? await decompressBytes(bytesRaw) : bytesRaw;
     const expectedLength = totalByteLength(fields);
-    const currentVersionFields = fields === savedFields025;
+    const currentVersionFields = fields === currentSaveFields;
     if (!development && (!currentVersionFields || bytes.length > expectedLength) && bytes.length !== expectedLength) {
         throw new Error(`Invalid save payload length: expected ${expectedLength} bytes, received ${bytes.length}`);
     }
-    for (const field of savedFields025) field.reset();
+    for (const field of currentSaveFields) field.reset();
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     let offset = 0;
     for (const field of fields) {
@@ -647,7 +695,7 @@ export async function saveGame(): Promise<void> {
 
 export function resetGame(): void {
     savingEnabled = true;
-    for (const field of savedFields025) field.reset();
+    for (const field of currentSaveFields) field.reset();
     refreshAchievementRewards();
     refreshCondensedUpgradeState();
     refreshSealedMeridiansDerivedState();

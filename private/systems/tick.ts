@@ -11,6 +11,7 @@ import { isAllProducersManaAbsorbersCrystalActive, isCrystalActive } from "../ga
 import { PerformanceStats } from "./performance-stats.js";
 import { tickKeybinds } from "./keybinds.js";
 import { updateAutocasters } from "../guild/autocasters.js";
+import { tickAbyssRunTime } from "../abyss/abyss.js";
 
 /** [WASM] */
 
@@ -252,13 +253,14 @@ function calculateModifier(scope: i32, target: i32, type: i32): f64 {
     return result;
 }
 
-export function tick(deltaMilliseconds: f64, countTimePlayed: bool): void {
+export function tick(deltaMilliseconds: f64, countTimePlayed: bool, chargeAutocasterWages: bool): void {
+    tickAbyssRunTime(deltaMilliseconds / 1000);
     if (!(deltaMilliseconds > 0) || !isFinite(deltaMilliseconds)) return;
     if (isAllProducersManaAbsorbersCrystalActive()) synchronizeCrystal11Multipliers();
     writeNumber(secondsHandle, deltaMilliseconds / 1000);
     updatePotionEffects(secondsHandle);
     updateQuestBoard(deltaMilliseconds / 1000);
-    updateAutocasters(deltaMilliseconds / 1000);
+    updateAutocasters(deltaMilliseconds / 1000, chargeAutocasterWages);
     tickProduction(deltaMilliseconds, countTimePlayed);
     if (!isCrystalActive()) updateHighestManaReached();
     if (consumeTierOneRewardsChanged()) {
@@ -274,7 +276,7 @@ export function simulateTicks(durationMilliseconds: f64, stepMilliseconds: f64, 
     let remainingMilliseconds = durationMilliseconds;
     while (remainingMilliseconds > 0) {
         const tickMilliseconds = Math.min(stepMilliseconds, remainingMilliseconds);
-        tick(tickMilliseconds, countTimePlayed);
+        tick(tickMilliseconds, countTimePlayed, false);
         remainingMilliseconds -= tickMilliseconds;
     }
 }
@@ -489,7 +491,7 @@ function runTick(): void {
         if (elapsedMilliseconds > 10_000) {
             if (offlineProgress) void simulateTime(elapsedMilliseconds / 1000, true);
         } else {
-            tick(elapsedMilliseconds, true);
+            tick(elapsedMilliseconds, true, true);
         }
     }
     tickKeybinds();

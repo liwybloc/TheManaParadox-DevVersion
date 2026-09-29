@@ -25,6 +25,7 @@ import { equipmentManaProductionMultiplier } from "../guild/equipment.js";
 import type { Player } from "../core/player.js";
 import type { Scratch } from "../core/scratch.js";
 import { remembrance_manaGainModifiers } from "./remembrance.js";
+import { applyAbyssProductionEffect, isAbyssRunActive } from "../abyss/abyss.js";
 
 declare const player: Player;
 declare const scratch: Scratch;
@@ -133,6 +134,14 @@ export function applyManaGainModifiers(amount: i32): void {
     }
     applyCrystalManaGainModifiers(amount);
     remembrance_manaGainModifiers(amount);
+    applyAbyssProductionBeforeMeditation(amount);
+}
+
+function applyAbyssProductionBeforeMeditation(amount: i32): void {
+    if (!isAbyssRunActive()) return;
+    divUS(amount, player.castSpeedMagnitude);
+    applyAbyssProductionEffect(amount);
+    mulUS(amount, player.castSpeedMagnitude);
 }
 
 export function clampManaToInfinityBoundary(): void {

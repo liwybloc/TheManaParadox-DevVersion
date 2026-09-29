@@ -1,4 +1,4 @@
-import { addInto, addUS, ceilInto, copyInto, divInto, divUS, gt, gte, multiplyInto, mulUS, powInto, powUS, subUS, writeDecimal, writeNumber } from "../core/break_eternity.js";
+import { addInto, addUS, ceilInto, copyInto, divInto, divUS, gt, gte, multiplyInto, mulUS, powInto, powUS, subUS, toNumber, writeDecimal, writeNumber } from "../core/break_eternity.js";
 import { checkCastSpeedAchievements, hasTierOneAchievement, unlockTierOneAchievement } from "./achievements.js";
 import { hasAscendedCondensedEffect, hasCondensedEffect } from "./condensed.js";
 import { getCrystalStartMana, isAllMultipliersDisabledCrystalActive, isManaAbsorberOnlyCrystalActive, isProducerOnlyCrystalActive, isSpecificCrystalActive, refreshCrystalRewardEffects } from "./crystals.js";
@@ -6,6 +6,8 @@ import type { Player } from "../core/player.js";
 import type { Scratch } from "../core/scratch.js";
 import { refreshTierOneDerivedState, resetMeridianPurification, resetTierOneAmounts } from "./tier_one.js";
 import { equipmentCrystalMatrixMultiplier } from "../guild/equipment.js";
+import "../abyss/handles.js";
+import { abyssMeditationPowerHandle, abyssProgressionPowerHandle, resonanceTowerBonusHandle } from "../abyss/abyss.js";
 
 declare const player: Player;
 declare const scratch: Scratch;
@@ -13,18 +15,22 @@ declare const scratch: Scratch;
 /** [WASM] */
 
 const CONDENSED_CAST_SPEED_POWER_BONUS: f64 = 0.25;
+let meditationCasts: i32 = 0;
 
 export function castSpeed(): bool {
     if (!canCastSpeed()) return false;
     player.castSpeedUsedThisCondense = true;
     const meditationActive = gt(player.castSpeedTimer, 0);
     subUS(player.mana, player.castSpeedCost);
+    copyInto(scratch.productionModifier, meditationPowerHandle());
     if (!meditationActive) {
-        multiplyInto(player.castSpeedMagnitude, player.sealedMeridiansSpeedEffect, player.matrixSpeedPower);
+        multiplyInto(player.castSpeedMagnitude, player.sealedMeridiansSpeedEffect, scratch.productionModifier);
     } else {
-        mulUS(player.castSpeedMagnitude, player.matrixSpeedPower);
+        mulUS(player.castSpeedMagnitude, scratch.productionModifier);
     }
-    addUS(player.castSpeedTimer, hasTierOneAchievement(9) ? 20 : 15);
+    meditationCasts++;
+    writeNumber(scratch.tierOneSeconds, hasTierOneAchievement(9) ? 20 : 15);
+    addUS(player.castSpeedTimer, scratch.tierOneSeconds);
     if (hasAscendedCondensedEffect(11) && !gt(player.castSpeedCost, 0)) {
         if (meditationActive) writeNumber(player.castSpeedCost, 1000);
     } else if (hasCondensedEffect(11) && !gt(player.castSpeedCost, 0)) {
@@ -94,10 +100,14 @@ export function sealedMeridianMagnitudeHandle(): i32 {
         crystalMatrixEffectHandle();
         mulUS(scratch.productionModifier, 2);
         addUS(scratch.productionModifier, 2);
+        mulUS(scratch.productionModifier, resonanceTowerBonusHandle(2));
+        powUS(scratch.productionModifier, abyssProgressionPowerHandle());
         return scratch.productionModifier;
     }
-    if (hasCondensedEffect(15)) return player.matrixSpeedPower;
-    writeNumber(scratch.productionModifier, 2);
+    if (hasCondensedEffect(15)) copyInto(scratch.productionModifier, player.matrixSpeedPower);
+    else writeNumber(scratch.productionModifier, 2);
+    mulUS(scratch.productionModifier, resonanceTowerBonusHandle(2));
+    powUS(scratch.productionModifier, abyssProgressionPowerHandle());
     return scratch.productionModifier;
 }
 
@@ -154,6 +164,8 @@ export function matrixMagnitudeHandle(): i32 {
     }
     writeNumber(scratch.tierOneSeconds, equipmentCrystalMatrixMultiplier());
     mulUS(scratch.productionModifier, scratch.tierOneSeconds);
+    mulUS(scratch.productionModifier, resonanceTowerBonusHandle(1));
+    powUS(scratch.productionModifier, abyssProgressionPowerHandle());
     return scratch.productionModifier;
 }
 
@@ -178,6 +190,29 @@ export function matrixOtherEffectHandle(): i32 {
     return scratch.productionModifier;
 }
 
+export function meditationPowerHandle(): i32 {
+    copyInto(scratch.tierOneSeconds, player.matrixSpeedPower);
+    mulUS(scratch.tierOneSeconds, resonanceTowerBonusHandle(3));
+    powUS(scratch.tierOneSeconds, abyssMeditationPowerHandle());
+    return scratch.tierOneSeconds;
+}
+
+export function refreshMeditationMagnitude(): void {
+    if (!gt(player.castSpeedTimer, 0)) return;
+    if (meditationCasts <= 0) {
+        const duration: f64 = hasTierOneAchievement(9) ? 20 : 15;
+        const inferredCasts = <i32>Math.ceil(toNumber(player.castSpeedTimer) / duration);
+        meditationCasts = inferredCasts < 1 ? 1 : inferredCasts;
+    }
+    copyInto(scratch.productionModifier, meditationPowerHandle());
+    writeNumber(scratch.tierOneExponent, meditationCasts);
+    powInto(scratch.productionModifier, scratch.productionModifier, scratch.tierOneExponent);
+    multiplyInto(player.castSpeedMagnitude, player.sealedMeridiansSpeedEffect, scratch.productionModifier);
+}
+
+export function getMeditationCasts(): i32 { return meditationCasts; }
+export function setMeditationCasts(value: i32): void { meditationCasts = value < 0 ? 0 : value; }
+
 export function resetSealedMeridians(): void {
     writeNumber(player.sealedMeridiansOwned, hasAscendedCondensedEffect(10) ? 2 : hasCondensedEffect(10) ? 1 : 0);
     refreshSealedMeridiansDerivedState();
@@ -193,6 +228,7 @@ function resetTierOne(): void {
 }
 
 export function resetCastSpeed(): void {
+    meditationCasts = 0;
     writeNumber(player.castSpeedTimer, 0);
     writeNumber(player.castSpeedMagnitude, 1);
     writeNumber(player.castSpeedCost, hasCondensedEffect(11) || hasAscendedCondensedEffect(11) ? 0 : 1000);

@@ -9,6 +9,8 @@ import { GUILD_QUESTS } from "./quests.js";
 import { GUILD_SHOP_UPGRADES } from "./shop.js";
 import { equipmentBattleDamageMultiplier, equipmentDamageTakenMultiplier, equipmentGameSpeedMultiplier, equipmentMaximumShieldMultiplier, equippedItem, hasMireguardSetBonus, setEquippedItem } from "./equipment.js";
 import { refreshMatrixDerivedState } from "../game/progression.js";
+import "../abyss/handles.js";
+import { abyssGameSpeedDivisorHandle, abyssPotionPowerMultiplierHandle, resonanceTowerEffectHandle } from "../abyss/abyss.js";
 
 type Num10 = [number, number, number, number, number, number, number, number, number, number];
 type Num3 = [number, number, number];
@@ -603,8 +605,8 @@ function availablePotionEffectSlots(itemId: i32): i32 {
 export function applyPotionEffect(itemId: i32): bool {
     if (isPotionDisabledCrystalActive()) return false;
     const duration = potionDuration(itemId);
-    const effect = potionEffect(itemId);
-    return duration > 0 && effect > 0 && applyTimedPotionEffect(itemId, duration, effect);
+    const effect = potionEffectHandle(itemId);
+    return duration > 0 && gt(effect, 0) && applyTimedPotionEffect(itemId, duration, effect);
 }
 
 export function potionDuration(itemId: i32): i32 {
@@ -616,7 +618,7 @@ export function potionDuration(itemId: i32): i32 {
     return duration;
 }
 
-export function potionEffect(itemId: i32): f64 {
+export function potionEffectHandle(itemId: i32): i32 {
     const baseEffect: f64 = itemId === INVENTORY_POTION_OF_SPEED ? 4
         : itemId === INVENTORY_POTION_OF_SPEED_II ? 14
         : itemId === INVENTORY_POTION_OF_SPEED_III ? 63 : 0;
@@ -658,12 +660,20 @@ export function refreshPotionEffectState(): void {
     }
 }
 
-function potionSpeedEffect(baseEffect: f64): f64 {
-    let effect = baseEffect;
-    if (hasTierOneAchievement(30)) effect *= 1.25;
-    if (hasGuildShopUpgrade(3)) effect *= 1.5;
-    if (isCrystalActive() && hasCompletedCrystal(6)) effect *= toNumber(crystalRewardHandle(6, 0));
-    return effect;
+function potionSpeedEffect(baseEffect: f64): i32 {
+    writeNumber(scratch.productionModifier, baseEffect);
+    if (hasTierOneAchievement(30)) {
+        writeNumber(scratch.tierOneSeconds, 1.25);
+        mulUS(scratch.productionModifier, scratch.tierOneSeconds);
+    }
+    if (hasGuildShopUpgrade(3)) {
+        writeNumber(scratch.tierOneSeconds, 1.5);
+        mulUS(scratch.productionModifier, scratch.tierOneSeconds);
+    }
+    if (isCrystalActive() && hasCompletedCrystal(6)) mulUS(scratch.productionModifier, crystalRewardHandle(6, 0));
+    mulUS(scratch.productionModifier, resonanceTowerEffectHandle(0, 2));
+    mulUS(scratch.productionModifier, abyssPotionPowerMultiplierHandle());
+    return scratch.productionModifier;
 }
 
 export function updatePotionEffects(seconds: i32): void {
@@ -672,7 +682,7 @@ export function updatePotionEffects(seconds: i32): void {
     updateTimedPotionEffects(INVENTORY_POTION_OF_SPEED_III, seconds);
 }
 
-function applyTimedPotionEffect(itemId: i32, duration: i32, speed: f64): bool {
+function applyTimedPotionEffect(itemId: i32, duration: i32, speed: i32): bool {
     for (let index: i32 = 0; index < 10; index++) {
         const timer = potionTimer(itemId, index);
         if (gt(timer, 0)) continue;
@@ -683,19 +693,17 @@ function applyTimedPotionEffect(itemId: i32, duration: i32, speed: f64): bool {
     return false;
 }
 
-function clearTimedPotionEffect(itemId: i32, effectIndex: i32, speed: f64): bool {
+function clearTimedPotionEffect(itemId: i32, effectIndex: i32, speed: i32): bool {
     if (effectIndex < 0 || effectIndex >= 10) return false;
     const timer = potionTimer(itemId, effectIndex);
     if (!gt(timer, 0)) return false;
     writeNumber(timer, 0);
-    writeNumber(scratch.productionModifier, speed);
-    subUS(scratch.gameSpeed, scratch.productionModifier);
+    subUS(scratch.gameSpeed, speed);
     return true;
 }
 
-function addPotionSpeed(speed: f64): void {
-    writeNumber(scratch.productionModifier, speed);
-    addUS(scratch.gameSpeed, scratch.productionModifier);
+function addPotionSpeed(speed: i32): void {
+    addUS(scratch.gameSpeed, speed);
 }
 
 function updateTimedPotionEffects(itemId: i32, seconds: i32): void {
@@ -723,6 +731,7 @@ export function getGameSpeed(): i32 {
     mulUS(scratch.effectiveGameSpeed, scratch.productionModifier);
     if (gt(player.courageTimer, 0)) mulUS(scratch.effectiveGameSpeed, player.courageMultiplier);
     if (isFocusing()) mulUS(scratch.effectiveGameSpeed, focusGameSpeedMultiplier());
+    divUS(scratch.effectiveGameSpeed, abyssGameSpeedDivisorHandle());
     return scratch.effectiveGameSpeed;
 }
 

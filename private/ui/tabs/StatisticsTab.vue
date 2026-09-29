@@ -22,5 +22,12 @@ defineProps({
             <p>Time spent this condense: <strong>{{ statistics.timeThisCondense }}</strong></p>
             <p>Game time spent this condense: <strong>{{ statistics.gameTimeThisCondense }}</strong></p>
         </header>
+        <header v-if="statistics.abyssUnlocked" class="stat-header">
+            <h2>Abyss</h2>
+            <p>Sonic Value: <strong>{{ statistics.sonicValue }}</strong></p>
+            <p>Highest depth completed: <strong>{{ statistics.highestAbyssDepth }}</strong></p>
+            <p>Time this Abyss run: <strong>{{ statistics.abyssRunTime }}</strong></p>
+            <p>Abyss runs completed: <strong>{{ statistics.abyssRunsCompleted }}</strong></p>
+        </header>
     </section>
 </template>

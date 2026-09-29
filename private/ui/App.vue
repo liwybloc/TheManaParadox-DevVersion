@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { HANDLES } from "@game/core/player.js";
 import { SCRATCH_HANDLES } from "@game/core/scratch.js";
 import { ACHIEVEMENTS } from "@game/game/achievements.js";
@@ -15,25 +15,14 @@ import { INVENTORY_ITEMS_BY_ID, Items, resolveItemDescription } from "@game/guil
 import { GUILD_SHOP_UPGRADES } from "@game/guild/shop.js";
 import { AUTOCASTER_NAMES, AUTOCASTER_TASKS, AUTOCASTER_TIERS, MAX_AUTOCASTERS } from "@game/config/autocasters.js";
 import { AUTOCASTER_HANDLES } from "@game/guild/autocasters.js";
-import { castAll, condense, enterCrystal as enterCrystalAction, escapeCrystal as escapeCrystalAction, focus as focusAction, increaseMatrix as increaseMatrixAction, sealMeridians as sealMeridiansAction, sealedMeridianResetNoGain as sealedMeridianResetNoGainAction, shatterCrystal as shatterCrystalAction, subscribeToCondense, subscribeToMemoryGain } from "@game/systems/actions.js";
+import { beginAbyssRun as beginAbyssRunAction, castAll, condense, enterCrystal as enterCrystalAction, escapeAbyssRun as escapeAbyssRunAction, escapeCrystal as escapeCrystalAction, focus as focusAction, increaseMatrix as increaseMatrixAction, sealMeridians as sealMeridiansAction, sealedMeridianResetNoGain as sealedMeridianResetNoGainAction, shatterCrystal as shatterCrystalAction, subscribeToCondense, subscribeToMemoryGain } from "@game/systems/actions.js";
 import { exportSave, importSave, resetGame as resetGameData, saveGame } from "@game/systems/save.js";
 import { getUpdateRate, isOfflineProgressEnabled, setOfflineProgressEnabled, setUpdateRate, skipTimeSimulation, speedUpTimeSimulation, subscribeToTimeSimulation } from "@game/systems/tick.js";
 import { setAbyssActive, setAbyssVortexActive, setStarManaProgress, setStarsAnimated as applyStarsAnimated, setStarsVisible as applyStarsVisible, starsAnimated as loadStarsAnimated, starsVisible as loadStarsVisible } from "@game/systems/background.js";
 import { formatCompletionTime, formatCrystalGoal, formatDecimal, formatDecimalCompact, formatDecimals } from "@game/ui/formatting.js";
 import { namedWasm } from "@generated/_wasm$globals.js";
-import GameHeader from "./components/GameHeader.vue";
 import GoalProgressBar from "./components/GoalProgressBar.vue";
-import TabNavigation from "./components/TabNavigation.vue";
-import ManaTab from "./tabs/ManaTab.vue";
-import CondensedTab from "./tabs/CondensedTab.vue";
-import ManaCircleTab from "./tabs/ManaCircleTab.vue";
-import CrystalsTab from "./tabs/CrystalsTab.vue";
-import GuildTab from "./tabs/GuildTab.vue";
-import QuestTab from "./tabs/QuestTab.vue";
-import AutocastersTab from "./tabs/AutocastersTab.vue";
-import OptionsTab from "./tabs/OptionsTab.vue";
-import StatisticsTab from "./tabs/StatisticsTab.vue";
-import AchievementsTab from "./tabs/AchievementsTab.vue";
+import BaseGameFrame from "./frames/BaseGameFrame.vue";
 import InfoTab from "./tabs/InfoTab.vue";
 import NotificationStack from "./components/NotificationStack.vue";
 import TimeSimulation from "./components/TimeSimulation.vue";
@@ -42,7 +31,7 @@ import MessageTicker from "./components/MessageTicker.vue";
 import ManaCircleExpansion from "./components/ManaCircleExpansion.vue";
 import { showNotification } from "./notifications.js";
 import { createGlitchPositions, renderGlitchText } from "./textoptions.js";
-import AbyssTab from "./tabs/AbyssTab.vue";
+import AbyssFrame from "./frames/AbyssFrame.vue";
 
 function tabDefinition(tabId) {
     return TABS.find((tab) => tab.id === tabId);
@@ -65,6 +54,8 @@ if (isValidSubTab(startTab, selectedSubTab)) startingSubtabs[startTab] = selecte
 const activeTab = ref(startTab);
 const activeSubtabs = ref(startingSubtabs);
 const mana = ref("0");
+const sonicValue = ref("0.000000");
+const abyssRunActive = ref(false);
 const canCondense = ref(false);
 const condenseManaGained = ref("0");
 const condensedMana = ref("0");
@@ -84,6 +75,8 @@ const activeCrystal = ref(-1);
 const crystalGoalReached = ref(false);
 const crystalCanShatter = ref(false);
 const equipmentUnlocked = ref(false);
+const enteredAbyss = ref(namedWasm.isInAbyss());
+const abyssEntryTransition = ref("fade");
 const cantRankUp = ref(false);
 const pingedTabs = ref([]);
 const pingedSubtabs = ref([]);
@@ -253,10 +246,16 @@ const statistics = ref({
     gameTimeThisCondense: "00:00:00",
     fastestCondense: "00:00:00",
     hasCondensed: false,
+    abyssUnlocked: false,
+    sonicValue: "0.000000",
+    highestAbyssDepth: "1,000 m",
+    abyssRunTime: "00:00:00",
+    abyssRunsCompleted: 0,
 });
 
 const memories = ref({
     remembered: 0,
+    limited: false,
     nextChance: "100.00",
     focusing: false,
     manaMultiplier: "1.00",
@@ -306,7 +305,7 @@ const visibleTabs = computed(() => TABS.filter((tab) => {
 watch(
     [activeTab, activeSubtab],
     ([tab, subtab]) => {
-        const abyss = tab === "abyss";
+        const abyss = tab === "abyss" || namedWasm.isAbyssRunActive();
         document.body.classList.toggle("abyss-active", abyss);
         setAbyssActive(abyss);
         setAbyssVortexActive(abyss && subtab === "depths");
@@ -325,7 +324,7 @@ function displayedItemDefinition(itemId) {
         ],
         description: resolveItemDescription(definition.description, {
             duration: namedWasm.potionDuration(itemId),
-            effect: namedWasm.potionEffect(itemId).toFixed(2),
+            effect: formatDecimal(namedWasm.potionEffectHandle(itemId)),
         }),
     };
 }
@@ -428,6 +427,9 @@ function updateSlowDisplay() {
 
 function updateDisplay(timestamp) {
     try {
+        const nextEnteredAbyss = namedWasm.isInAbyss();
+        if (nextEnteredAbyss && !enteredAbyss.value) abyssEntryTransition.value = "fade";
+        enteredAbyss.value = nextEnteredAbyss;
         if (showFpsCounter) {
             if (fpsWindowStart === 0) fpsWindowStart = timestamp;
             fpsFrameCount++;
@@ -469,6 +471,8 @@ function updateGlobalDisplay() {
     remembranceUnlocked.value = namedWasm.hasMemoryMilestone(500);
     libraryUnlocked.value = namedWasm.hasMemoryMilestone(75);
     abyssUnlocked.value = namedWasm.hasCompletedCrystal(14);
+    abyssRunActive.value = namedWasm.isAbyssRunActive();
+    sonicValue.value = formatDecimal(namedWasm.sonicValueLogarithmicHandle(), 6);
     memories.value.focusing = namedWasm.isFocusing();
     if (manaCircle.value > 0 && canCondense.value) {
         namedWasm.refreshCondenseGain();
@@ -674,13 +678,13 @@ function updateManaDisplay() {
     showOoMPerSecond.value = namedWasm.getIncType() === 1;
     potionEffects.value = potionSpeedTimers.map((seconds, index) => ({
         id: `speed-${index}`,
-        text: `Potion of Speed: +${namedWasm.potionEffect(Items.POTION_SPEED_I).toFixed(2)}× Game Speed (${formatShortTimer(seconds)})`,
+        text: `Potion of Speed: +${formatDecimal(namedWasm.potionEffectHandle(Items.POTION_SPEED_I))}× Game Speed (${formatShortTimer(seconds)})`,
     })).concat(potionSpeedIITimers.map((seconds, index) => ({
         id: `speed-ii-${index}`,
-        text: `Potion of Speed II: +${namedWasm.potionEffect(Items.POTION_SPEED_II).toFixed(2)}× Game Speed (${formatShortTimer(seconds)})`,
+        text: `Potion of Speed II: +${formatDecimal(namedWasm.potionEffectHandle(Items.POTION_SPEED_II))}× Game Speed (${formatShortTimer(seconds)})`,
     }))).concat(potionSpeedIIITimers.map((seconds, index) => ({
         id: `speed-iii-${index}`,
-        text: `Potion of Speed III: +${namedWasm.potionEffect(Items.POTION_SPEED_III).toFixed(2)}× Game Speed (${formatShortTimer(seconds)})`,
+        text: `Potion of Speed III: +${formatDecimal(namedWasm.potionEffectHandle(Items.POTION_SPEED_III))}× Game Speed (${formatShortTimer(seconds)})`,
     })));
     for (const upgrade of tierOneUpgrades.value) {
         const bought = namedWasm.tierOneBoughtHandle(upgrade.index);
@@ -706,8 +710,9 @@ function updateManaDisplay() {
     castSpeedSpell.value.timer = formatDuration(HANDLES.castSpeedTimer);
     const [castSpeedMagnitude, castSpeedCost] = formatDecimals([HANDLES.castSpeedMagnitude, HANDLES.castSpeedCost]);
     castSpeedSpell.value.magnitude = `×${castSpeedMagnitude}`;
-    castSpeedSpell.value.power = formatDecimalCompact(HANDLES.matrixSpeedPower);
-    castSpeedSpell.value.showPower = !namedWasm.eq(HANDLES.matrixSpeedPower, 2);
+    const meditationPower = namedWasm.meditationPowerHandle();
+    castSpeedSpell.value.power = formatDecimalCompact(meditationPower);
+    castSpeedSpell.value.showPower = !namedWasm.eq(meditationPower, 2);
     castSpeedSpell.value.cost = `${castSpeedCost} mana`;
     castSpeedSpell.value.affordable = namedWasm.canCastSpeed();
     const [sealedMeridianLevel, sealedMeridianEffect, sealedMeridianCost] = formatDecimals([
@@ -740,9 +745,9 @@ function updateManaDisplay() {
     meridianPurification.value.affordable = namedWasm.canPurifyMeridians();
     meridianPurification.value.visible = namedWasm.hasTierOneAchievement(7);
     const [purificationEffect, purificationIncrease, purificationMultiplier, purificationRequirement] = formatDecimals([
-        HANDLES.meridianPurificationEffect,
+        namedWasm.effectiveMeridianPurificationEffectHandle(),
         SCRATCH_HANDLES.purificationRelativeIncrease,
-        HANDLES.purifiedMeridiansMultiplier,
+        namedWasm.effectivePurifiedMeridiansMultiplierHandle(),
         HANDLES.meridianPurificationRequirement,
     ]);
     meridianPurification.value.effect = `×${purificationEffect}`;
@@ -882,6 +887,7 @@ function updateCondensedDisplay() {
     namedWasm.refreshCondensedUpgradeState();
     namedWasm.refreshCondenseGain();
     memories.value.remembered = namedWasm.getTotalMemories();
+    memories.value.limited = namedWasm.isMemoryLimitReached();
     memories.value.focusing = namedWasm.isFocusing();
     const [manaMultiplier, productionMultiplier] = formatDecimals([
         namedWasm.memoryManaMultiplierHandle(), namedWasm.memoryProductionMultiplierHandle(),
@@ -941,6 +947,11 @@ function updateStatisticsDisplay() {
         namedWasm.toNumber(HANDLES.statistics_fastestCondense),
         3,
     );
+    statistics.value.abyssUnlocked = abyssUnlocked.value;
+    statistics.value.sonicValue = formatDecimal(namedWasm.sonicValueLogarithmicHandle(), 6);
+    statistics.value.highestAbyssDepth = `${Math.round(namedWasm.getHighestAbyssDepthCompleted()).toLocaleString()} m`;
+    statistics.value.abyssRunTime = formatCompletionTime(namedWasm.getAbyssRunTime(), 1);
+    statistics.value.abyssRunsCompleted = namedWasm.getAbyssRunsCompleted();
     statistics.value.hasCondensed = namedWasm.hasCondensed();
 }
 
@@ -1205,10 +1216,6 @@ function abandonGuildQuest() {
     void saveGame();
 }
 
-function dismissQuestResult() {
-    namedWasm.dismissQuestResult();
-}
-
 function moveInventoryItem(item, position) {
     if (namedWasm.moveInventoryItem(item, position)) void saveGame();
 }
@@ -1332,6 +1339,159 @@ function recordClick() {
     namedWasm.recordClick();
 }
 
+function enterAbyss() {
+    if (enteredAbyss.value || namedWasm.isAbyssRunActive() || namedWasm.isFocusing()) return;
+    abyssEntryTransition.value = "zoom";
+    namedWasm.setInAbyss(true);
+    enteredAbyss.value = namedWasm.isInAbyss();
+    void saveGame();
+}
+
+async function leaveAbyss() {
+    namedWasm.setInAbyss(false);
+    enteredAbyss.value = namedWasm.isInAbyss();
+    void saveGame();
+    await nextTick();
+    const onAbyssTab = activeTab.value === "abyss";
+    document.body.classList.toggle("abyss-active", onAbyssTab);
+    setAbyssActive(onAbyssTab);
+    setAbyssVortexActive(onAbyssTab && activeSubtab.value === "depths");
+}
+
+function beginAbyssRun() {
+    if (!beginAbyssRunAction()) return;
+    enteredAbyss.value = false;
+    selectTab("mana");
+    document.body.classList.add("abyss-active");
+    setAbyssActive(true);
+    setAbyssVortexActive(false);
+}
+
+function escapeAbyssRun() {
+    if (!escapeAbyssRunAction()) return;
+    abyssEntryTransition.value = "fade";
+    enteredAbyss.value = true;
+}
+
+const baseGameFrame = computed(() => ({
+    mana: mana.value,
+    sonicValue: sonicValue.value,
+    abyssRunActive: abyssRunActive.value,
+    activeCrystal: activeCrystal.value,
+    canCondense: canCondense.value,
+    manaCircle: manaCircle.value,
+    crystalCanShatter: crystalCanShatter.value,
+    crystalGoalReached: crystalGoalReached.value,
+    memories: memories.value,
+    condenseManaGained: condenseManaGained.value,
+    condensedUnlocked: condensedUnlocked.value,
+    condensedMana: condensedMana.value,
+    visibleTabs: visibleTabs.value,
+    activeTab: activeTab.value,
+    activeSubtab: activeSubtab.value,
+    pingedTabs: pingedTabs.value,
+    pingedSubtabs: pingedSubtabs.value,
+    tierOneUpgrades: tierOneUpgrades.value,
+    castSpeedSpell: castSpeedSpell.value,
+    castMax: castMax.value,
+    sealedMeridians: sealedMeridians.value,
+    matrix: matrix.value,
+    courage: courage.value,
+    meridianPurification: meridianPurification.value,
+    potionEffects: potionEffects.value,
+    gameSpeed: gameSpeed.value,
+    gameSpeedIncreased: gameSpeedIncreased.value,
+    manaPerSecond: manaPerSecond.value,
+    oomPerSecond: oomPerSecond.value,
+    showOoMPerSecond: showOoMPerSecond.value,
+    expCostIncreasesAt: expCostIncreasesAt.value,
+    statistics: statistics.value,
+    condensedUpgrades: condensedUpgrades.value,
+    condensedUpgradePlaceholders: condensedUpgradePlaceholders.value,
+    remembrance: remembrance.value,
+    crystalStateRevision: crystalStateRevision.value,
+    guild: guild.value,
+    guildQuests: guildQuests.value,
+    questResult: questResult.value,
+    equipmentUnlocked: equipmentUnlocked.value,
+    cantRankUp: cantRankUp.value,
+    combat: combat.value,
+    autocasters: autocasters.value,
+    achievements: achievements.value,
+    updateRate: updateRate.value,
+    renderUpdateRate: renderUpdateRate.value,
+    offlineProgress: offlineProgress.value,
+    starsVisible: starsVisible.value,
+    starsAnimated: starsAnimated.value,
+    newsTickerEnabled: newsTickerEnabled.value,
+    messageTickerParticles: messageTickerParticles.value,
+}));
+
+const baseGameFrameActions = {
+    handlePrimaryResetAction,
+    enterAbyss,
+    escapeCrystal,
+    escapeAbyssRun,
+    selectTab,
+    selectSubtab,
+    buyTierOne,
+    empowerTierOne,
+    buyAllTierOne,
+    toggleCastMode,
+    castSpeed,
+    sealMeridians,
+    increaseMatrix,
+    activateCourage,
+    purifyMeridians,
+    sealedMeridianResetNoGain,
+    buyCondensedUpgrade,
+    focus,
+    buyMemorial,
+    buyRemembranceUpgrade,
+    toggleRemembranceRespec,
+    exportRemembrance,
+    importRemembrance,
+    openManaCircleInfo: () => openInfo("mana-circle"),
+    enterCrystal,
+    applyToGuild,
+    acceptGuildQuest,
+    dismissQuestResult: namedWasm.dismissQuestResult,
+    moveInventoryItem,
+    equipInventoryItem,
+    unequipInventoryItem,
+    useInventoryItem,
+    sellInventoryItem,
+    sellAllMaterials,
+    sellSpareEquipment,
+    sellAllItems,
+    drinkAllPotions,
+    buyShopItem,
+    buyGuildShopUpgrade,
+    expandManaCircle,
+    castCombatSpell,
+    abandonGuildQuest,
+    hireAutocaster,
+    assignAutocaster,
+    moveAutocaster,
+    sellAutocaster,
+    setAutocasterCastsMax,
+    setAutocasterPurifyMinimum,
+    setAutocasterCondenseGain,
+    setAutocasterMaximum,
+    toggleAutocasters,
+    editKeybinds,
+    setStarsVisible,
+    setStarsAnimated,
+    setNewsTickerEnabled,
+    setMessageTickerParticles,
+    exportGameSave,
+    importGameSave,
+    resetGame,
+    updateTickRate,
+    setRenderUpdateRate,
+    setOfflineProgress,
+};
+
 onMounted(() => {
     document.addEventListener("click", recordClick);
     unsubscribeFromCondense = subscribeToCondense(handleCondensed);
@@ -1392,186 +1552,21 @@ onBeforeUnmount(() => {
             @speed-up="speedUpTimeSimulation"
             @skip="skipTimeSimulation"
         />
-        <GameHeader :mana="mana" />
-        <button
-            v-if="activeCrystal >= 0 || canCondense || manaCircle > 0"
-            class="condense-button"
-            type="button"
-            :disabled="activeCrystal >= 0 ? !crystalCanShatter : !canCondense"
-            @click="handlePrimaryResetAction"
-        >
-            <strong>{{ activeCrystal >= 0 ? (crystalGoalReached ? "Shatter the Crystal" : formatCrystalGoal(CRYSTAL_GOALS[activeCrystal])) : (memories.focusing ? "Remember" : "Condense") }}</strong>
-            <small v-if="activeCrystal < 0 && manaCircle > 0 && canCondense">
-                <br>{{ memories.focusing ? `for an ${memories.nextChance}% chance` : `for ${condenseManaGained} condensed mana` }}
-            </small>
-        </button>
-        <button
-            v-if="activeCrystal >= 0"
-            class="escape-crystal-button"
-            type="button"
-            @click="escapeCrystal"
-        >
-                Escape Crystal {{ activeCrystal + 1 }}
-        </button>
-        <div v-if="condensedUnlocked" class="condensed-mana-display">
-            <span>You have</span>
-            <strong>{{ condensedMana }}</strong>
-            <span>condensed mana</span>
-        </div>
-        <TabNavigation
-            :tabs="visibleTabs"
-            :active-tab="activeTab"
-            :active-subtab="activeSubtab"
-            :pinged-tabs="pingedTabs"
-            :pinged-subtabs="pingedSubtabs"
-            @select-tab="selectTab"
-            @select-subtab="selectSubtab"
+
+        <BaseGameFrame
+            v-if="!enteredAbyss"
+            key="base-game-frame"
+            :frame="baseGameFrame"
+            :actions="baseGameFrameActions"
         />
-        <main class="content-frame">
-            <ManaTab
-                v-if="activeTab === 'mana'"
-                :upgrades="tierOneUpgrades"
-                :cast-speed="castSpeedSpell"
-                :cast-mode="castMax ? 'Cast Max' : 'Cast One'"
-                :sealed-meridians="sealedMeridians"
-                :matrix="matrix"
-                :courage="courage"
-                :meridian-purification="meridianPurification"
-                :potion-effects="potionEffects"
-                :game-speed="gameSpeed"
-                :game-speed-increased="gameSpeedIncreased"
-                :manaPerSecond="manaPerSecond"
-                :oom-per-second="oomPerSecond"
-                :show-oo-m-per-second="showOoMPerSecond"
-                :exp-cost-increases-at="expCostIncreasesAt"
-                :hide-cost-warning="activeCrystal === 9 || activeCrystal === 14"
-                :producers-only="activeCrystal === 2 || activeCrystal === 14"
-                :crystal-puzzle-reset="activeCrystal >= 11"
-                @buy="buyTierOne"
-                @empower="empowerTierOne"
-                @buy-all="buyAllTierOne"
-                @toggle-cast-mode="toggleCastMode"
-                @cast-speed="castSpeed"
-                @seal-meridians="sealMeridians"
-                @increase-matrix="increaseMatrix"
-                @activate-courage="activateCourage"
-                @purify-meridians="purifyMeridians"
-                @sealed-meridian-reset-no-gain="sealedMeridianResetNoGain"
-            />
-            <StatisticsTab
-                v-else-if="activeTab === 'statistics'"
-                :statistics="statistics"
-            />
-            <CondensedTab
-                v-else-if="activeTab === 'condensed'"
-                :active-subtab="activeSubtab"
-                :condensed-mana="condensedMana"
-                :upgrades="condensedUpgrades"
-                :placeholders="condensedUpgradePlaceholders"
-                :memories="memories"
-                :remembrance="remembrance"
-                :isAscended="manaCircle > 0"
-                @buy="buyCondensedUpgrade"
-                @focus="focus"
-                @buy-memorial="buyMemorial"
-                @buy-remembrance="buyRemembranceUpgrade"
-                @respec="toggleRemembranceRespec"
-                @export-remembrance="exportRemembrance"
-                @import-remembrance="importRemembrance"
-            />
-            <AbyssTab
-                v-else-if="activeTab === 'abyss'"
-                :active-subtab="activeSubtab"
-            />
-            <ManaCircleTab
-                v-else-if="activeTab === 'manacircle'"
-                :active-subtab="activeSubtab"
-                :mana-circle="manaCircle"
-                @info="openInfo('mana-circle')"
-            />
-            <CrystalsTab
-                v-else-if="activeTab === 'crystals'"
-                :active-subtab="activeSubtab"
-                :state-revision="crystalStateRevision"
-                @enter="enterCrystal"
-            />
-            <GuildTab
-                v-else-if="activeTab === 'guild'"
-                :active-subtab="activeSubtab"
-                :guild="guild"
-                :quests="guildQuests"
-                :quest-result="questResult"
-                :mana-circle="manaCircle"
-                :equipment-unlocked="equipmentUnlocked"
-                :cant-rank-up="cantRankUp"
-                @apply="applyToGuild"
-                @accept="acceptGuildQuest"
-                @dismiss-result="dismissQuestResult"
-                @move-item="moveInventoryItem"
-                @equip-item="equipInventoryItem"
-                @unequip-item="unequipInventoryItem"
-                @use-item="useInventoryItem"
-                @sell-item="sellInventoryItem"
-                @sell-all-materials="sellAllMaterials"
-                @sell-equipment="sellSpareEquipment"
-                @sell-all-items="sellAllItems"
-                @drink-all-potions="drinkAllPotions"
-                @buy-shop-item="buyShopItem"
-                @buy-shop-upgrade="buyGuildShopUpgrade"
-                @ascend="expandManaCircle"
-            />
-            <QuestTab
-                v-else-if="activeTab === 'quest'"
-                :combat="combat"
-                @cast="castCombatSpell"
-                @abandon="abandonGuildQuest"
-            />
-            <AutocastersTab
-                v-else-if="activeTab === 'autocasters'"
-                :autocasters="autocasters"
-                :coins="guild.coins"
-                :mana-circle="manaCircle"
-                @hire="hireAutocaster"
-                @assign="assignAutocaster"
-                @move="moveAutocaster"
-                @sell="sellAutocaster"
-                @casts-max="setAutocasterCastsMax"
-                @purify-minimum="setAutocasterPurifyMinimum"
-                @condense-gain="setAutocasterCondenseGain"
-                @maximum-owned="setAutocasterMaximum"
-                @toggle="toggleAutocasters"
-            />
-            <AchievementsTab
-                v-else-if="activeTab === 'achievements'"
-                :active-subtab="activeSubtab"
-                :achievements="achievements"
-                :mana-circle="manaCircle + 1"
-            />
-            <OptionsTab
-                v-else-if="activeTab === 'options'"
-                :active-subtab="activeSubtab"
-                :update-rate="updateRate"
-                :render-update-rate="renderUpdateRate"
-                :offline-progress="offlineProgress"
-                :stars-visible="starsVisible"
-                :stars-animated="starsAnimated"
-                :news-ticker-enabled="newsTickerEnabled"
-                :message-ticker-particles="messageTickerParticles"
-                @edit-keybinds="editKeybinds"
-                @stars-visible="setStarsVisible"
-                @stars-animated="setStarsAnimated"
-                @news-ticker-enabled="setNewsTickerEnabled"
-                @message-ticker-particles="setMessageTickerParticles"
-                @export-save="exportGameSave"
-                @import-save="importGameSave"
-                @reset-game="resetGame"
-                @update-rate="updateTickRate"
-                @render-update-rate="setRenderUpdateRate"
-                @offline-progress="setOfflineProgress"
-            />
+        <AbyssFrame
+            v-else
+            key="abyss-frame"
+            :entry-transition="abyssEntryTransition"
+            @leave-abyss="leaveAbyss"
+            @begin-run="beginAbyssRun"
+        />
 
-
-        </main>
         <div v-if="resetConfirmationVisible" class="confirmation-overlay" role="presentation" @click.self="cancelResetGame">
             <section class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-game-title">
                 <h2 id="reset-game-title">Are you sure?</h2>
@@ -1585,12 +1580,12 @@ onBeforeUnmount(() => {
         <KeybindMenu v-if="changeKeybindsVisible" @close="changeKeybindsVisible = false" />
         <InfoTab v-if="infoTabVisible" :initial-topic-id="infoTopicId" @close="infoTabVisible = false" />
         <MessageTicker
-            v-if="newsTickerEnabled"
+            v-if="newsTickerEnabled && !enteredAbyss"
             :key="messageTickerParticles ? 'particles' : 'text'"
             :particles="messageTickerParticles"
             @message-displayed="updateMessageTickerStatistics"
         />
-        <footer>The Mana Paradox v0.0.14</footer>
+        <footer>The Mana Paradox v0.0.15</footer>
         <GoalProgressBar :goal="nextGoal" :progress="nextGoalProgress" />
     </div>
 </template>

@@ -1,4 +1,6 @@
-import { addUS, gt, gte, log10Into, mulUS, subUS, toNumber, writeDecimal, writeNumber } from "../core/break_eternity.js";
+import { addUS, gt, gte, log10Into, mulUS, powUS, subUS, toNumber, writeDecimal, writeNumber } from "../core/break_eternity.js";
+import "../abyss/handles.js";
+import { abyssRunCouragePowerHandle, resonanceTowerEffectHandle } from "../abyss/abyss.js";
 import { hasAscendedCondensedEffect, hasCondensedEffect } from "./condensed.js";
 import { isAllMultipliersDisabledCrystalActive, isProducerOnlyCrystalActive } from "./crystals.js";
 import { hasMemoryMilestone } from "./memories.js";
@@ -58,6 +60,8 @@ export function refreshCourageMultiplier(): void {
         if (hasAscendedCondensedEffect(18)) mulUS(scratch.productionModifier, 5);
         mulUS(player.courageMultiplier, scratch.productionModifier);
     }
+    mulUS(player.courageMultiplier, resonanceTowerEffectHandle(7, 2));
+    powUS(player.courageMultiplier, abyssRunCouragePowerHandle());
 }
 
 export function isCourageActive(): bool {

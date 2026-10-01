@@ -1,4 +1,4 @@
-import { addUS, copyInto, createDecimal, createZero, divUS, gt, gte, log10Into, lte, mulUS, powUS, subUS, toNumber, writeDecimal, writeNumber } from "../core/break_eternity.js";
+import { addUS, copyInto, createDecimal, createZero, divUS, getMagnitude, getSign, gt, gte, log10Into, lte, mulUS, powUS, subUS, writeDecimal, writeNumber } from "../core/break_eternity.js";
 import { checkCoinAchievements, consumeCircularHabitsReward, hasTierOneAchievement, unlockTierOneAchievement } from "../game/achievements.js";
 import { crystalRewardHandle, hasCompletedCrystal, isAllMultipliersDisabledCrystalActive, isCrystalActive, isPotionDisabledCrystalActive, isProducerOnlyCrystalActive } from "../game/crystals.js";
 import { focusGameSpeedMultiplier, isFocusing } from "../game/memories.js";
@@ -160,19 +160,19 @@ export function configureGuildRankExperienceRequirement(rank: i32, requirement: 
 }
 
 export function guildExperienceRequirement(): f64 {
-    const rank = <i32>toNumber(player.guildRank);
+    const rank = <i32>getMagnitude(player.guildRank);
     return rank >= 0 && rank < guildRankExperienceRequirementCount
         ? guildRankExperienceRequirements[rank]
         : Infinity;
 }
 
 export function cantRankUp(): bool {
-    const rank = <i32>toNumber(player.guildRank);
-    return rank === 4 || (rank === 0 && toNumber(player.mana_circle_tier) <= 0);
+    const rank = <i32>getMagnitude(player.guildRank);
+    return rank === 4 || (rank === 0 && !gt(player.mana_circle_tier, 0));
 }
 
 export function isQuestActive(): bool {
-    return toNumber(player.activeQuest) >= 0;
+    return getSign(player.activeQuest) >= 0;
 }
 
 export function isQuestSlotLocked(index: i32): bool {
@@ -212,7 +212,7 @@ export function updateQuestBoard(deltaSeconds: f64): void {
 }
 
 export function activeQuestIndex(): i32 {
-    return <i32>toNumber(player.activeQuest);
+    return <i32>(getSign(player.activeQuest) * getMagnitude(player.activeQuest));
 }
 
 export function hasGuildShopUpgrade(index: i32): bool {
@@ -276,7 +276,7 @@ export function buyShopItem(slot: i32): bool {
 
 export function canBuyGuildShopUpgrade(index: i32): bool {
     if (index < 0 || index >= SHOP_UPGRADE_COUNT || hasGuildShopUpgrade(index)) return false;
-    if (<i32>toNumber(player.guildRank) < guildShopUpgradeRank(index)) return false;
+    if (<i32>getMagnitude(player.guildRank) < guildShopUpgradeRank(index)) return false;
     writeNumber(scratch.productionModifier, guildShopUpgradeCost(index));
     return gte(player.coins, scratch.productionModifier);
 }
@@ -334,7 +334,9 @@ export function combatShieldHandle(): i32 {
 export function wolfineHealthPercent(): f64 {
     copyInto(scratch.currencyGain, player.enemyHealth);
     divUS(scratch.currencyGain, enemyMaximumHealth(activeQuestIndex()));
-    return Math.max(0, Math.min(1, toNumber(scratch.currencyGain)));
+    if (!gt(scratch.currencyGain, 0)) return 0;
+    if (gt(scratch.currencyGain, 1)) return 1;
+    return getMagnitude(scratch.currencyGain);
 }
 
 export function enemyMaximumHealth(questSlot: i32): i32 {
@@ -356,7 +358,9 @@ export function combatShieldPercent(): f64 {
     writeNumber(scratch.currencyGain, 0);
     addUS(scratch.currencyGain, player.combatShield);
     divUS(scratch.currencyGain, player.combatShieldMaximum);
-    return Math.max(0, Math.min(1, toNumber(scratch.currencyGain)));
+    if (!gt(scratch.currencyGain, 0)) return 0;
+    if (gt(scratch.currencyGain, 1)) return 1;
+    return getMagnitude(scratch.currencyGain);
 }
 
 export function canCastCombatSpell(index: i32): bool {
@@ -815,8 +819,8 @@ export function ensureInventoryPlacements(): void {
         }
     }
     if (wolfFur === 0 && potions === 0) {
-        const legacyWolfFur = <i32>Math.min(100, toNumber(player.inventoryWolfFur));
-        const legacyPotions = <i32>Math.min(100, toNumber(player.inventoryPotionOfSpeed));
+        const legacyWolfFur = <i32>Math.min(100, getMagnitude(player.inventoryWolfFur));
+        const legacyPotions = <i32>Math.min(100, getMagnitude(player.inventoryPotionOfSpeed));
         wolfFur = placeInventoryItems(INVENTORY_WOLF_FUR, legacyWolfFur);
         potions = placeInventoryItems(INVENTORY_POTION_OF_SPEED, legacyPotions);
     }
@@ -940,7 +944,7 @@ function finishQuest(victory: bool): void {
         lastPotionDropped = rewardDroppedForItem(INVENTORY_POTION_OF_SPEED);
         questResultPending = true;
         addUS(player.statistics_questsCompleted, 1);
-        const currentRank = <i32>toNumber(player.guildRank);
+        const currentRank = <i32>getMagnitude(player.guildRank);
         addGuildExperience(questRank(completedSlot), currentRank);
         const requirement = guildExperienceRequirement();
         if (cantRankUp()) {
@@ -992,7 +996,7 @@ function resetGuildExperienceByQuestRank(): void {
 }
 
 function refreshQuestDefinitions(): void {
-    const rank = <i32>toNumber(player.guildRank);
+    const rank = <i32>getMagnitude(player.guildRank);
     const minimumId = minimumQuestDefinitionId(rank);
     const maximumId = maximumQuestDefinitionId(rank);
     for (let slot: i32 = 0; slot < QUEST_SLOT_COUNT; slot++) {
@@ -1004,7 +1008,7 @@ function refreshQuestDefinitions(): void {
 }
 
 function questDefinitionsMatchCurrentRank(): bool {
-    const rank = <i32>toNumber(player.guildRank);
+    const rank = <i32>getMagnitude(player.guildRank);
     const minimumId = minimumQuestDefinitionId(rank);
     const maximumId = maximumQuestDefinitionId(rank);
     for (let slot: i32 = 0; slot < QUEST_SLOT_COUNT; slot++) {

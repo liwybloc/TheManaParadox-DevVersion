@@ -1,4 +1,4 @@
-import { addUS, copyInto, createDecimal, createZero, divInto, divUS, gte, multiplyInto, mulUS, powUS, subInto, toNumber } from "../core/break_eternity.js";
+import { addUS, copyInto, createDecimal, createZero, divInto, divUS, getMagnitude, gte, multiplyInto, mulUS, powUS, subInto } from "../core/break_eternity.js";
 import type { Player } from "../core/player.js";
 import type { Scratch } from "../core/scratch.js";
 import { hasTierOneAchievement } from "./achievements.js";
@@ -268,7 +268,7 @@ export function canShatterActiveCrystal(): bool {
 
 export function shatterActiveCrystal(): bool {
     if (!canShatterActiveCrystal()) return false;
-    const elapsed = toNumber(player.statistics_timeThisCondense);
+    const elapsed = getMagnitude(player.statistics_timeThisCondense);
     const fastest = fastestCrystalShatters[activeCrystal];
     if (fastest <= 0 || elapsed < fastest) fastestCrystalShatters[activeCrystal] = elapsed;
     completedCrystals[activeCrystal] = 1;

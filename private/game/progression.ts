@@ -1,4 +1,4 @@
-import { addInto, addUS, ceilInto, copyInto, divInto, divUS, gt, gte, multiplyInto, mulUS, powInto, powUS, subUS, toNumber, writeDecimal, writeNumber } from "../core/break_eternity.js";
+import { addInto, addUS, ceilInto, copyInto, divInto, divUS, getMagnitude, gt, gte, multiplyInto, mulUS, powInto, powUS, subUS, writeDecimal, writeNumber } from "../core/break_eternity.js";
 import { checkCastSpeedAchievements, hasTierOneAchievement, unlockTierOneAchievement } from "./achievements.js";
 import { hasAscendedCondensedEffect, hasCondensedEffect } from "./condensed.js";
 import { getCrystalStartMana, isAllMultipliersDisabledCrystalActive, isManaAbsorberOnlyCrystalActive, isProducerOnlyCrystalActive, isSpecificCrystalActive, refreshCrystalRewardEffects } from "./crystals.js";
@@ -201,7 +201,7 @@ export function refreshMeditationMagnitude(): void {
     if (!gt(player.castSpeedTimer, 0)) return;
     if (meditationCasts <= 0) {
         const duration: f64 = hasTierOneAchievement(9) ? 20 : 15;
-        const inferredCasts = <i32>Math.ceil(toNumber(player.castSpeedTimer) / duration);
+        const inferredCasts = <i32>Math.ceil(getMagnitude(player.castSpeedTimer) / duration);
         meditationCasts = inferredCasts < 1 ? 1 : inferredCasts;
     }
     copyInto(scratch.productionModifier, meditationPowerHandle());

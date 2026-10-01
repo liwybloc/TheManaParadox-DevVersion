@@ -407,7 +407,7 @@ function updateSlowDisplay() {
             updateCondensedDisplay();
             break;
         case "manacircle":
-            manaCircle.value = namedWasm.toNumber(HANDLES.mana_circle_tier);
+            manaCircle.value = namedWasm.getMagnitude(HANDLES.mana_circle_tier);
             break;
         case "guild":
             updateGuildDisplay(activeSubtab.value);
@@ -465,7 +465,7 @@ function updateGlobalDisplay() {
     canCondense.value = namedWasm.canCondense();
     condensedUnlocked.value = namedWasm.hasCondensed();
     if (condensedUnlocked.value) condensedMana.value = formatDecimal(HANDLES.condensedMana, 0);
-    manaCircle.value = namedWasm.toNumber(HANDLES.mana_circle_tier);
+    manaCircle.value = namedWasm.getMagnitude(HANDLES.mana_circle_tier);
     crystalsUnlocked.value = namedWasm.hasAscendedCondensedEffect(19);
     memoriesUnlocked.value = namedWasm.hasCompletedCrystal(2);
     remembranceUnlocked.value = namedWasm.hasMemoryMilestone(500);
@@ -611,7 +611,7 @@ function updateAutocastersDisplay() {
 function isProgressionGoalComplete(goal) {
     switch (goal.completion) {
         case "sealed-meridians":
-            return namedWasm.toNumber(HANDLES.sealedMeridians) > 1 || namedWasm.isGuildUnlocked();
+            return namedWasm.gt(HANDLES.sealedMeridians, 1) || namedWasm.isGuildUnlocked();
         case "meridian-purification":
             return namedWasm.gt(HANDLES.purifiedMeridiansMultiplier, 1) || namedWasm.isGuildUnlocked();
         case "guild-member":
@@ -639,6 +639,7 @@ function progressionGoalProgress(goal) {
                 progress.startExponent,
                 progress.endExponent,
                 progress.maximumBeforeCompletion,
+                progress.doubleLog,
             );
         case "condensed-upgrades":
             return countCompleted(CONDENSED_UPGRADES, (_, index) => namedWasm.hasCondensedUpgrade(index)) / progress.target;
@@ -662,13 +663,13 @@ function countCompleted(definitions, predicate) {
 function updateManaDisplay() {
     namedWasm.refreshCrystalProducerCosts();
     const potionSpeedTimers = POTION_SPEED_TIMER_HANDLES
-        .map((handle) => namedWasm.toNumber(handle))
+        .map((handle) => namedWasm.getMagnitude(handle))
         .filter((seconds) => seconds > 0);
     const potionSpeedIITimers = POTION_SPEED_II_TIMER_HANDLES
-        .map((handle) => namedWasm.toNumber(handle))
+        .map((handle) => namedWasm.getMagnitude(handle))
         .filter((seconds) => seconds > 0);
     const potionSpeedIIITimers = POTION_SPEED_III_TIMER_HANDLES
-        .map((handle) => namedWasm.toNumber(handle))
+        .map((handle) => namedWasm.getMagnitude(handle))
         .filter((seconds) => seconds > 0);
     gameSpeed.value = formatGameSpeed(namedWasm.getGameSpeed());
     gameSpeedIncreased.value = namedWasm.isGameSpeedIncreased();
@@ -737,7 +738,7 @@ function updateManaDisplay() {
     matrix.value.visible = namedWasm.isMatrixVisible();
     courage.value.visible = namedWasm.isCourageVisible();
     courage.value.active = namedWasm.isCourageActive();
-    courage.value.available = namedWasm.toNumber(HANDLES.courageCooldown) <= 0;
+    courage.value.available = !namedWasm.gt(HANDLES.courageCooldown, 0);
     courage.value.timer = formatDuration(HANDLES.courageTimer);
     courage.value.cooldown = formatDuration(HANDLES.courageCooldown);
     namedWasm.refreshCourageMultiplier();
@@ -765,7 +766,7 @@ function updateGuildDisplay(subtab) {
 }
 
 function updateGuildShopDisplay() {
-    const guildRankIndex = namedWasm.toNumber(HANDLES.guildRank);
+    const guildRankIndex = namedWasm.getMagnitude(HANDLES.guildRank);
     guild.value.coins = formatDecimal(HANDLES.coins, 0);
     guild.value.shopItems = Array.from({ length: 3 }, (_, slot) => {
         const itemId = namedWasm.shopItemId(slot);
@@ -823,7 +824,7 @@ function unequipInventoryItem(slot, position) {
 }
 
 function updateGuildBoardDisplay() {
-    const guildRankIndex = namedWasm.toNumber(HANDLES.guildRank);
+    const guildRankIndex = namedWasm.getMagnitude(HANDLES.guildRank);
     guild.value.rank = GUILD_RANKS[guildRankIndex] ?? "F";
     guild.value.rankIndex = guildRankIndex;
     guild.value.nextRank = GUILD_RANKS[guildRankIndex + 1] ?? "---";
@@ -944,7 +945,7 @@ function updateStatisticsDisplay() {
     statistics.value.timeThisCondense = formatTotalTime(HANDLES.statistics_timeThisCondense);
     statistics.value.gameTimeThisCondense = formatTotalTime(HANDLES.statistics_gameTimeThisCondense);
     statistics.value.fastestCondense = formatCompletionTime(
-        namedWasm.toNumber(HANDLES.statistics_fastestCondense),
+        namedWasm.getMagnitude(HANDLES.statistics_fastestCondense),
         3,
     );
     statistics.value.abyssUnlocked = abyssUnlocked.value;
@@ -983,28 +984,27 @@ function updateAchievementNotifications(force = false) {
 }
 
 function formatOoMPerSecond(handle) {
-    const value = namedWasm.toNumber(handle);
-    if (Number.isFinite(value) && Math.abs(value) < 0.01) return "0.00";
+    if (namedWasm.getLayer(handle) === 0 && namedWasm.getMagnitude(handle) < 0.01) return "0.00";
     return formatDecimal(handle);
 }
 
 function formatGameSpeed(handle) {
     if (!namedWasm.gt(handle, 0) || !namedWasm.lt(handle, 0.01)) return formatDecimal(handle);
-    const speed = Number(namedWasm.readString(handle));
-    return Number.isFinite(speed) ? speed.toExponential(2).replace("+", "") : formatDecimal(handle);
+    const speed = namedWasm.getSign(handle) * namedWasm.getMagnitude(handle);
+    return speed.toExponential(2).replace("+", "");
 }
 
 function formatDuration(handle) {
-    const seconds = namedWasm.toNumber(handle);
-    if (!Number.isFinite(seconds)) return `${formatDecimal(handle)}s`;
+    if (namedWasm.getLayer(handle) !== 0) return `${formatDecimal(handle)}s`;
+    const seconds = namedWasm.getSign(handle) * namedWasm.getMagnitude(handle);
     const wholeSeconds = Math.max(0, Math.ceil(seconds));
     const minutes = Math.floor(wholeSeconds / 60);
     return `${minutes}:${String(wholeSeconds % 60).padStart(2, "0")}`;
 }
 
 function formatTotalTime(handle) {
-    const seconds = namedWasm.toNumber(handle);
-    if (!Number.isFinite(seconds)) return `${formatDecimal(handle)} seconds`;
+    if (namedWasm.getLayer(handle) !== 0) return `${formatDecimal(handle)} seconds`;
+    const seconds = namedWasm.getSign(handle) * namedWasm.getMagnitude(handle);
     const totalSeconds = Math.max(0, Math.floor(seconds));
     const days = Math.floor(totalSeconds / 86400);
     const hours = Math.floor(totalSeconds % 86400 / 3600);
@@ -1185,7 +1185,7 @@ function focus() {
 
 function expandManaCircle() {
     if (!namedWasm.expandManaCircle()) return;
-    manaCircle.value = namedWasm.toNumber(HANDLES.mana_circle_tier);
+    manaCircle.value = namedWasm.getMagnitude(HANDLES.mana_circle_tier);
     selectTab("mana");
     pingTab("mana");
     pingTab("condensed");

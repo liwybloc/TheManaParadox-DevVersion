@@ -1,6 +1,5 @@
 export const ABYSS_TABS = [
     { id: "depths", label: "The Depths", icon: "꩜" },
-    { id: "discoveries", label: "Discoveries", icon: "◈" },
 ] as const;
 
 /** [WASM] */

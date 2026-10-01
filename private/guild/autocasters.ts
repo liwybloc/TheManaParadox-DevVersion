@@ -1,4 +1,4 @@
-import { addUS, createDecimal, gte, lt, subUS, toNumber, writeNumber } from "../core/break_eternity.js";
+import { addUS, createDecimal, getMagnitude, gte, gt, lt, subUS, writeNumber } from "../core/break_eternity.js";
 import { canCondense, refreshCondenseGain } from "../game/condensed.js";
 import { activateCourage } from "../game/courage.js";
 import { castSpeed, increaseMatrix, sealMeridians } from "../game/progression.js";
@@ -94,7 +94,7 @@ export function setProducerAutocasterCastsMax(index: i32, value: bool): void {
 }
 
 export function autocasterPurifyMinimumRelativeMultiplier(): f64 {
-    return toNumber(purifyMinimumHandle);
+    return getMagnitude(purifyMinimumHandle);
 }
 
 export function setAutocasterPurifyMinimumRelativeMultiplier(value: f64): void {
@@ -102,7 +102,7 @@ export function setAutocasterPurifyMinimumRelativeMultiplier(value: f64): void {
 }
 
 export function autocasterCondenseGain(): f64 {
-    return toNumber(autoCondenseGainHandle);
+    return getMagnitude(autoCondenseGainHandle);
 }
 
 export function setAutocasterCondenseGain(value: f64): void {
@@ -111,7 +111,7 @@ export function setAutocasterCondenseGain(value: f64): void {
 
 function canAutoCondense(): bool {
     if (!canCondense()) return false;
-    if (toNumber(player.mana_circle_tier) <= 0) return true;
+    if (!gt(player.mana_circle_tier, 0)) return true;
     refreshCondenseGain();
     return gte(scratch.condenseGain, autoCondenseGainHandle);
 }

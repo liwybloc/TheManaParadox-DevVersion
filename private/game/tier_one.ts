@@ -8,6 +8,7 @@ import {
     gt,
     gte,
     log10Into,
+    lt,
     lte,
     multiplyInto,
     mulUS,
@@ -17,7 +18,7 @@ import {
     powUS,
     subInto,
     subUS,
-    toNumber,
+    getMagnitude,
     writeDecimal,
     writeNumber,
 } from "../core/break_eternity.js";
@@ -114,7 +115,8 @@ export function refreshMeridianPurificationEffect(): void {
     powInto(player.meridianPurificationEffect, scratch.productionModifier, scratch.tierOneExponent);
     mulUS(player.meridianPurificationEffect, PURIFICATION_BASE_MULTIPLIER);
     if (hasTierOneAchievement(17)) mulUS(player.meridianPurificationEffect, 5);
-    if (toNumber(player.meridianPurificationEffect) < PURIFICATION_MINIMUM_EFFECT) {
+    writeNumber(scratch.tierOneExponent, PURIFICATION_MINIMUM_EFFECT);
+    if (lt(player.meridianPurificationEffect, scratch.tierOneExponent)) {
         writeNumber(player.meridianPurificationEffect, PURIFICATION_MINIMUM_EFFECT);
     }
     divInto(scratch.purificationRelativeIncrease, player.meridianPurificationEffect, player.purifiedMeridiansMultiplier);
@@ -420,7 +422,7 @@ export function tierOneAffordabilityProgress(index: i32): f64 {
     const cost = tierOneCostHandle(index);
     if (gte(player.mana, cost)) return 1;
     if (!gt(player.mana, 1)) return 0;
-    const infinityBoundary = <i32>toNumber(player.mana_circle_tier);
+    const infinityBoundary = <i32>getMagnitude(player.mana_circle_tier);
     if (passesLayerBoundary(cost, infinityBoundary)) return 0;
 
     const bought = tierOneBoughtHandle(index);
@@ -450,8 +452,9 @@ export function tierOneAffordabilityProgress(index: i32): f64 {
     subUS(scratch.tierOneProduction, scratch.tierOneExponent);
     subUS(scratch.productionModifier, scratch.tierOneExponent);
     divUS(scratch.tierOneProduction, scratch.productionModifier);
-    const progress = toNumber(scratch.tierOneProduction);
-    return Math.max(0, Math.min(1, progress));
+    if (!gt(scratch.tierOneProduction, 0)) return 0;
+    if (gt(scratch.tierOneProduction, 1)) return 1;
+    return getMagnitude(scratch.tierOneProduction);
 }
 
 export function isTierOneVisible(index: i32): bool {

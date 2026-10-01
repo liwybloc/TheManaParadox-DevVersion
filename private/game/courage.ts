@@ -1,4 +1,4 @@
-import { addUS, gt, gte, log10Into, mulUS, powUS, subUS, toNumber, writeDecimal, writeNumber } from "../core/break_eternity.js";
+import { addUS, getMagnitude, gt, gte, log10Into, lte, mulUS, powUS, subUS, writeDecimal, writeNumber } from "../core/break_eternity.js";
 import "../abyss/handles.js";
 import { abyssRunCouragePowerHandle, resonanceTowerEffectHandle } from "../abyss/abyss.js";
 import { hasAscendedCondensedEffect, hasCondensedEffect } from "./condensed.js";
@@ -69,7 +69,7 @@ export function isCourageActive(): bool {
 }
 
 export function updateCourage(deltaSeconds: i32): bool {
-    const elapsed = Math.max(0, toNumber(deltaSeconds));
+    const elapsed = gt(deltaSeconds, 0) ? getMagnitude(deltaSeconds) : 0;
     const active = isCourageActive();
     if (elapsed === 0) return active;
 
@@ -78,7 +78,7 @@ export function updateCourage(deltaSeconds: i32): bool {
         return false;
     }
 
-    const activeRemaining = toNumber(player.courageTimer);
+    const activeRemaining = getMagnitude(player.courageTimer);
     if (activeRemaining > elapsed) {
         subUS(player.courageTimer, deltaSeconds);
         return true;
@@ -92,7 +92,7 @@ export function updateCourage(deltaSeconds: i32): bool {
 
 function reduceTimer(timer: i32, deltaSeconds: i32, elapsed: f64): void {
     if (!gt(timer, 0)) return;
-    if (toNumber(timer) <= elapsed) writeNumber(timer, 0);
+    if (lte(timer, deltaSeconds)) writeNumber(timer, 0);
     else subUS(timer, deltaSeconds);
 }
 

@@ -1,4 +1,4 @@
-import { addUS, copyInto, divUS, gt, log10Into, mulUS, powInto, subUS, toNumber, writeNumber } from "../core/break_eternity.js";
+import { addUS, copyInto, divUS, getMagnitude, gt, log10Into, mulUS, powInto, subUS, writeNumber } from "../core/break_eternity.js";
 import { crystalEffectHandle, crystalRewardHandle, hasCompletedCrystal, isCrystalActive, isSpecificCrystalActive } from "./crystals.js";
 import { unlockTierOneAchievement } from "./achievements.js";
 import type { Player } from "../core/player.js";
@@ -68,7 +68,7 @@ export function memoryChance(condensedManaGained: i32): f64 {
     copyInto(scratch.currencyGain, condensedManaGained);
     addUS(scratch.currencyGain, 1);
     log10Into(scratch.currencyGain, scratch.currencyGain);
-    const condensedManaBonus = Math.max(1, 1 + toNumber(scratch.currencyGain));
+    const condensedManaBonus = Math.max(1, 1 + getMagnitude(scratch.currencyGain));
     return Math.min(1, baseChance * condensedManaBonus);
 }
 

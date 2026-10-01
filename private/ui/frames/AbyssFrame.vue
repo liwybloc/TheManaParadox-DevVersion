@@ -214,10 +214,6 @@ onBeforeUnmount(() => {
                         </aside>
                     </div>
                 </section>
-                <section v-else>
-                    <h2>Discoveries</h2>
-                    <p>Anything recovered from the Abyss will appear here.</p>
-                </section>
             </main>
         </template>
     </section>

@@ -667,22 +667,6 @@ export function pow10(value: i32): i32 {
     return result;
 }
 
-export function toNumber(value: i32): f64 {
-    const sign = readSign(value);
-    const layer = readLayer(value);
-    const magnitude = readMagnitude(value);
-
-    if (isNaN(sign) || isNaN(layer) || isNaN(magnitude)) return NaN;
-    if (sign === 0) return 0;
-    if (layer === Infinity || magnitude === Infinity) return sign * Infinity;
-
-    if (layer === 0) return sign * magnitude;
-    if (layer === 1) return sign * Math.pow(10, magnitude);
-
-    if (magnitude < 0) return sign * 0;
-    return sign * Infinity;
-}
-
 export function floorInto(result: i32, value: i32): void {
     const sign = readSign(value);
     const layer = readLayer(value);

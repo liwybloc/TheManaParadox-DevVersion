@@ -1,3 +1,4 @@
+import { timeMemoryGain } from "./time.js";
 import { addUS, copyInto, divUS, getMagnitude, gt, log10Into, mulUS, powInto, subUS, writeNumber } from "../core/break_eternity.js";
 import { crystalEffectHandle, crystalRewardHandle, hasCompletedCrystal, isCrystalActive, isSpecificCrystalActive } from "./crystals.js";
 import { unlockTierOneAchievement } from "./achievements.js";
@@ -32,6 +33,19 @@ declare const player: Player;
 
 let totalMemories: i32 = 0;
 let focusing: bool = false;
+let memoryPityFailures: i32 = 0;
+
+export function getMemoryPityFailures(): i32 {
+    return memoryPityFailures;
+}
+
+export function setMemoryPityFailures(value: i32): void {
+    memoryPityFailures = value < 0 ? 0 : value > 100 ? 100 : value;
+}
+
+export function memoryPityProgress(): f64 {
+    return Math.log(1 + <f64>memoryPityFailures / 10) / Math.log(11);
+}
 
 export function getTotalMemories(): i32 {
     return totalMemories;
@@ -62,7 +76,7 @@ export function baseMemoryChance(): f64 {
     return 1 / (totalMemories + 1);
 }
 
-export function memoryChance(condensedManaGained: i32): f64 {
+export function unboostedMemoryChance(condensedManaGained: i32): f64 {
     const baseChance = baseMemoryChance();
     if (!gt(condensedManaGained, 0)) return baseChance;
     copyInto(scratch.currencyGain, condensedManaGained);
@@ -70,6 +84,12 @@ export function memoryChance(condensedManaGained: i32): f64 {
     log10Into(scratch.currencyGain, scratch.currencyGain);
     const condensedManaBonus = Math.max(1, 1 + getMagnitude(scratch.currencyGain));
     return Math.min(1, baseChance * condensedManaBonus);
+}
+
+export function memoryChance(condensedManaGained: i32): f64 {
+    const chance = unboostedMemoryChance(condensedManaGained);
+    if (chance <= 0.05 || chance >= 0.99) return chance;
+    return chance + (0.99 - chance) * memoryPityProgress();
 }
 
 export function focusGameSpeedMultiplier(): i32 {
@@ -116,7 +136,7 @@ function applyCrystal10MemoryReward(base: i32): void {
 }
 
 export function memoryGainMultiplier(): i32 {
-    return hasMemoryMilestone(50) ? 1 + totalMemories / 50 : 1;
+    return timeMemoryGain(hasMemoryMilestone(50) ? 1 + totalMemories / 50 : 1);
 }
 
 export function memoryCostStartAdd(): i32 {
@@ -134,15 +154,22 @@ export function toggleFocus(): bool {
 }
 
 export function resolveFocusedCondense(roll: f64, chance: f64): i32 {
-    if (!focusing) return 0;
+    if (!focusing || isMemoryLimitReached()) return 0;
+    const pityEligible = chance > 0.05;
     let memoriesGained = 0;
     while (chance >= 1) {
         memoriesGained++;
         chance--;
     }
     if (roll < chance) memoriesGained++;
-    if (memoriesGained === 0) return 0;
-    memoriesGained *= memoryGainMultiplier();
+    if (memoriesGained === 0) {
+        if (pityEligible) setMemoryPityFailures(memoryPityFailures + 1);
+        return 0;
+    }
+    memoryPityFailures = 0;
+    const scaledGain = <f64>memoriesGained * <f64>memoryGainMultiplier();
+    const remainingCapacity = 2_147_483_647 - totalMemories;
+    memoriesGained = scaledGain >= <f64>remainingCapacity ? remainingCapacity : <i32>scaledGain;
     const previousMemories = totalMemories;
     totalMemories = !hasCompletedCrystal(14) && totalMemories + memoriesGained > 999
         ? 999

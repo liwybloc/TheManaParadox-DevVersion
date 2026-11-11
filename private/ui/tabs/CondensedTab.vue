@@ -130,12 +130,22 @@ function connectionKey(connection) {
                 <p>You have remembered {{ memories.remembered }} memor{{ memories.remembered != 1 ? 'ies' : 'y' }}.</p>
                 <p v-if="memories.limited" class="memory-limit-message">A mysterious force is limiting your ability to remember...</p>
             </div>
+            <div class="focus-controls">
             <button class="focus-button" type="button" @click="$emit('focus')">
                 <strong>{{ memories.focusing ? "Exit Focus" : "Focus" }}</strong>
                 <span>Performs a condense reset.</span>
                 <span>{{ memories.focusing ? "Exits Focus." : "Game speed starts at ×0.1 and decreases exponentially based on Mana." }}</span>
                 <span>Next condense has a {{ memories.nextChance }}% chance for a memory</span>
             </button>
+                <div class="memory-pity" :class="{ inactive: !memories.pityEligible }" role="progressbar"
+                    aria-label="Memory pity" :aria-valuenow="Math.round(memories.pityProgress * 100)"
+                    aria-valuemin="0" aria-valuemax="100"
+                    title="Failures build pity when your chance is above 5%. Progress slows logarithmically, reaching a 99% chance at full. Success resets pity.">
+                    <div class="memory-pity-track"><div class="memory-pity-fill" :style="{ height: `${memories.pityProgress * 100}%` }"></div></div>
+                    <small>Pity</small>
+                    <small>{{ Math.round(memories.pityProgress * 100) }}%</small>
+                </div>
+            </div>
             <div class="memory-milestones">
                 <div
                     v-for="entry in visibleMemoryMilestones"
@@ -210,11 +220,59 @@ function connectionKey(connection) {
 </template>
 
 <style scoped>
+.focus-controls {
+    position: relative;
+    width: min(calc(100% - 72px), 440px);
+    margin: 0 auto 28px;
+}
+
+.memory-pity {
+    position: absolute;
+    left: calc(100% + 12px);
+    top: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    color: #cdb4ef;
+    font-size: 0.75rem;
+}
+
+.memory-pity.inactive {
+    color: #a99cb9;
+}
+
+.memory-pity-requirement {
+    position: absolute;
+    top: calc(100% + 4px);
+    width: 72px;
+    text-align: center;
+    font-size: 0.65rem;
+}
+
+.memory-pity-track {
+    position: relative;
+    flex: 1;
+    width: 14px;
+    overflow: hidden;
+    border: 1px solid #9571ce;
+    background: #21172f;
+}
+
+.memory-pity-fill {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+    background: linear-gradient(0deg, #7950ad, #d7baff);
+    transition: height 0.4s ease;
+}
+
 .focus-button {
     display: flex;
-    width: min(100%, 440px);
+    width: 100%;
     min-height: 112px;
-    margin: 0 auto 28px;
+    margin: 0;
     padding: 20px 24px;
     flex-direction: column;
     justify-content: center;

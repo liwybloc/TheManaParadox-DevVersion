@@ -218,6 +218,17 @@ export function updateAutocasters(deltaSeconds: f64, chargeWages: bool): void {
     }
 }
 
+export function updateCourageAutocasters(deltaSeconds: f64, chargeWages: bool): void {
+    if (!autocastersEnabled || deltaSeconds <= 0) return;
+    if (chargeWages) {
+        for (let caster: i32 = 0; caster < MAX_AUTOCASTERS; caster++) {
+            if (isAutocasterHired(caster) && assignments[caster] === 9) updateWage(caster, deltaSeconds);
+        }
+    }
+    const caster = casterAssignedToTask(9);
+    if (caster >= 0) updateAction(caster, 9, deltaSeconds, chargeWages);
+}
+
 export function isAutocastersEnabled(): bool {
     return autocastersEnabled;
 }

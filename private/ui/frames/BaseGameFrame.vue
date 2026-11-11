@@ -1,6 +1,8 @@
 <script setup>
 import { CRYSTAL_GOALS } from "@game/game/crystals.js";
 import { formatCrystalGoal } from "@game/ui/formatting.js";
+import MountainTab from "../tabs/MountainTab.vue";
+import TimeReveal from "../components/TimeReveal.vue";
 import GameHeader from "../components/GameHeader.vue";
 import TabNavigation from "../components/TabNavigation.vue";
 import ManaTab from "../tabs/ManaTab.vue";
@@ -51,6 +53,8 @@ defineProps({
         v-else-if="frame.abyssRunActive"
         class="escape-crystal-button"
         type="button"
+        :disabled="!frame.canEscapeAbyssRun"
+        :style="!frame.canEscapeAbyssRun ? { opacity: 0.4, cursor: 'not-allowed' } : undefined"
         @click="actions.escapeAbyssRun"
     >
         Escape this Abyss run
@@ -78,8 +82,11 @@ defineProps({
         @select-subtab="actions.selectSubtab"
     />
     <main class="content-frame">
+        <TimeReveal v-if="frame.activeTab === 'time' && frame.activeSubtab !== 'time-mountain'" :revealed="frame.timeRevealed" :animate-entrance="frame.timeEntrancePending"
+            @label="actions.updateTimeLabel" @complete="actions.completeTimeReveal" @entrance-complete="actions.completeTimeEntrance" />
+        <MountainTab v-else-if="frame.activeTab === 'time' && frame.activeSubtab === 'time-mountain' && frame.mountainUnlocked" />
         <ManaTab
-            v-if="frame.activeTab === 'mana'"
+            v-else-if="frame.activeTab === 'mana'"
             :upgrades="frame.tierOneUpgrades"
             :cast-speed="frame.castSpeedSpell"
             :cast-mode="frame.castMax ? 'Cast Max' : 'Cast One'"
@@ -134,6 +141,7 @@ defineProps({
                 :active-subtab="frame.activeSubtab"
                 :abyss-run-active="frame.abyssRunActive"
                 :sonic-value="frame.sonicValue"
+                :clock-guidance="frame.clockGuidance"
                 @enter-abyss="actions.enterAbyss"
             />
         <ManaCircleTab

@@ -421,6 +421,10 @@ export function getLayer(handle: i32): f64 {
     return readLayer(handle);
 }
 
+export function isFiniteDecimal(handle: i32): bool {
+    return isFinite(readSign(handle)) && isFinite(readLayer(handle)) && isFinite(readMagnitude(handle));
+}
+
 export function getMagnitude(handle: i32): f64 {
     return readMagnitude(handle);
 }

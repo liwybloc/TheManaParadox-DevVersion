@@ -31,6 +31,8 @@ import MessageTicker from "./components/MessageTicker.vue";
 import ManaCircleExpansion from "./components/ManaCircleExpansion.vue";
 import { showNotification } from "./notifications.js";
 import { createGlitchPositions, renderGlitchText } from "./textoptions.js";
+import ClockDialogue from "./components/ClockDialogue.vue";
+import DepthCrushing from "./components/DepthCrushing.vue";
 import AbyssFrame from "./frames/AbyssFrame.vue";
 
 function tabDefinition(tabId) {
@@ -56,6 +58,7 @@ const activeSubtabs = ref(startingSubtabs);
 const mana = ref("0");
 const sonicValue = ref("0.000000");
 const abyssRunActive = ref(false);
+const canEscapeAbyssRun = ref(false);
 const canCondense = ref(false);
 const condenseManaGained = ref("0");
 const condensedMana = ref("0");
@@ -76,6 +79,15 @@ const crystalGoalReached = ref(false);
 const crystalCanShatter = ref(false);
 const equipmentUnlocked = ref(false);
 const enteredAbyss = ref(namedWasm.isInAbyss());
+const crushingDepth = ref(false);
+const clockDialogue = ref(false);
+const timeEntrancePending = ref(false);
+const mountainUnlocked = ref(namedWasm.isMountainUnlocked());
+const clockRecovery = ref(namedWasm.getClockRecoveryStage());
+const clockBroken = ref(namedWasm.isClockBroken());
+const worldTimeStopped = ref(namedWasm.isWorldTimeStopped());
+const timeDiscovery = ref(namedWasm.getTimeDiscovery());
+const timeLabel = ref(timeDiscovery.value === 2 ? "Time" : "????");
 const abyssEntryTransition = ref("fade");
 const cantRankUp = ref(false);
 const pingedTabs = ref([]);
@@ -257,6 +269,8 @@ const memories = ref({
     remembered: 0,
     limited: false,
     nextChance: "100.00",
+    pityProgress: 0,
+    pityEligible: false,
     focusing: false,
     manaMultiplier: "1.00",
     productionMultiplier: "1.00",
@@ -285,6 +299,7 @@ let navigationUnlocksInitialized = false;
 
 const activeSubtab = computed(() => activeSubtabs.value[activeTab.value]);
 const visibleTabs = computed(() => TABS.filter((tab) => {
+    if (tab.requiresTime && timeDiscovery.value === 0) return false;
     if (tab.requiresCondensed && !condensedUnlocked.value) return false;
     if (tab.requiresGuild && !guildUnlocked.value) return false;
     if (tab.requiresQuest && !questActive.value) return false;
@@ -294,12 +309,15 @@ const visibleTabs = computed(() => TABS.filter((tab) => {
     return true;
 }).map((tab) => ({
     ...tab,
+    label: tab.id === "time" ? timeLabel.value : tab.label,
+    guided: clockBroken.value && ((clockRecovery.value === 0 && tab.id === "abyss") || (clockRecovery.value === 1 && tab.id === "time")),
     subtabs: tab.subtabs?.filter((subtab) =>
         (!subtab.requiresAscensionHall || ascensionHallUnlocked.value)
         && (!subtab.requiresMemory || memoriesUnlocked.value)
         && (!subtab.requiresRemTree || remembranceUnlocked.value)
         && (!subtab.requiresLibrary || libraryUnlocked.value)
-    ),
+        && (!subtab.requiresMountain || mountainUnlocked.value)
+    ).map((subtab) => ({ ...subtab, guided: clockBroken.value && clockRecovery.value === 0 && tab.id === "abyss" && subtab.id === "depths" })),
 })));
 
 watch(
@@ -347,6 +365,7 @@ function displayedInventoryItemDefinition(itemId, metadata) {
 
 function selectTab(id) {
     if (!isValidTab(id)) return;
+    if (id === "time" && namedWasm.getClockRecoveryStage() === 1 && namedWasm.isClockBroken()) clockDialogue.value = true;
     activeTab.value = id;
     pingedTabs.value = pingedTabs.value.filter((tabId) => tabId !== id);
     localStorage.setItem("selectedTab", id);
@@ -370,6 +389,7 @@ let lastRemembranceGlitchPositionUpdate = 0;
 let remembranceGlitchPositions = createGlitchPositions(15, 3);
 
 function updateRemembranceGlitch(timestamp) {
+    if (worldTimeStopped.value) return;
     if (timestamp - lastRemembranceGlitchRender < 50) return;
     lastRemembranceGlitchRender = timestamp;
     if (timestamp - lastRemembranceGlitchPositionUpdate >= 300) {
@@ -470,8 +490,19 @@ function updateGlobalDisplay() {
     memoriesUnlocked.value = namedWasm.hasCompletedCrystal(2);
     remembranceUnlocked.value = namedWasm.hasMemoryMilestone(500);
     libraryUnlocked.value = namedWasm.hasMemoryMilestone(75);
+    mountainUnlocked.value = namedWasm.isMountainUnlocked();
+    if (!mountainUnlocked.value && activeSubtabs.value.time === "time-mountain") activeSubtabs.value.time = "time-clock";
+    clockRecovery.value = namedWasm.getClockRecoveryStage();
+    clockBroken.value = namedWasm.isClockBroken();
+    worldTimeStopped.value = namedWasm.isWorldTimeStopped();
+    document.body.classList.toggle("world-time-stopped", worldTimeStopped.value);
+    if (activeTab.value === "time" && clockRecovery.value === 1 && clockBroken.value) clockDialogue.value = true;
+    timeDiscovery.value = namedWasm.getTimeDiscovery();
+    if (timeDiscovery.value !== 1) timeLabel.value = timeDiscovery.value === 2 ? "Time" : "????";
     abyssUnlocked.value = namedWasm.hasCompletedCrystal(14);
     abyssRunActive.value = namedWasm.isAbyssRunActive();
+    if (namedWasm.canDiscoverTime()) crushingDepth.value = true;
+    canEscapeAbyssRun.value = namedWasm.canEscapeAbyssRun();
     sonicValue.value = formatDecimal(namedWasm.sonicValueLogarithmicHandle(), 6);
     memories.value.focusing = namedWasm.isFocusing();
     if (manaCircle.value > 0 && canCondense.value) {
@@ -901,6 +932,8 @@ function updateCondensedDisplay() {
         ? namedWasm.memoryChance(SCRATCH_HANDLES.condenseGain)
         : namedWasm.baseMemoryChance();
     memories.value.nextChance = (memoryChance * 100).toFixed(2);
+    memories.value.pityProgress = namedWasm.memoryPityProgress();
+    memories.value.pityEligible = namedWasm.unboostedMemoryChance(SCRATCH_HANDLES.condenseGain) > 0.05;
     for (const upgrade of condensedUpgrades.value) {
         const finalUpgrade = upgrade.index === condensedUpgrades.value.length - 1;
         const circleTwoUnlocked = !finalUpgrade || namedWasm.canSeeCircleTwoFinalUpgrade();
@@ -1340,10 +1373,47 @@ function recordClick() {
 }
 
 function enterAbyss() {
-    if (enteredAbyss.value || namedWasm.isAbyssRunActive() || namedWasm.isFocusing()) return;
+    if (crushingDepth.value || enteredAbyss.value || namedWasm.isAbyssRunActive() || namedWasm.isFocusing()) return;
     abyssEntryTransition.value = "zoom";
     namedWasm.setInAbyss(true);
     enteredAbyss.value = namedWasm.isInAbyss();
+    void saveGame();
+}
+
+async function completeDepthCrushing() {
+    namedWasm.setTimeDiscovery(1);
+    if (namedWasm.isAbyssRunActive()) escapeAbyssRunAction();
+    abyssRunActive.value = false;
+    timeDiscovery.value = 1;
+    namedWasm.setInAbyss(false);
+    enteredAbyss.value = false;
+    selectTab("mana");
+    document.body.classList.remove("abyss-active");
+    setAbyssActive(false);
+    setAbyssVortexActive(false);
+    await saveGame();
+}
+
+function completeClockDialogue() {
+    if (namedWasm.isAbyssRunActive()) escapeAbyssRunAction();
+    namedWasm.setInAbyss(false);
+    enteredAbyss.value = false;
+    abyssRunActive.value = false;
+    namedWasm.setClockRecoveryStage(2);
+    clockRecovery.value = 2;
+    timeEntrancePending.value = true;
+    activeSubtabs.value.time = "time-clock";
+    selectTab("time");
+    document.body.classList.remove("abyss-active");
+    setAbyssActive(false);
+    setAbyssVortexActive(false);
+    void saveGame();
+}
+
+function completeTimeReveal() {
+    namedWasm.setTimeDiscovery(2);
+    timeDiscovery.value = 2;
+    timeLabel.value = "Time";
     void saveGame();
 }
 
@@ -1360,6 +1430,9 @@ async function leaveAbyss() {
 
 function beginAbyssRun() {
     if (!beginAbyssRunAction()) return;
+    clockRecovery.value = namedWasm.getClockRecoveryStage();
+    abyssRunActive.value = true;
+    crushingDepth.value = namedWasm.canDiscoverTime();
     enteredAbyss.value = false;
     selectTab("mana");
     document.body.classList.add("abyss-active");
@@ -1368,15 +1441,19 @@ function beginAbyssRun() {
 }
 
 function escapeAbyssRun() {
+    if (crushingDepth.value) return;
     if (!escapeAbyssRunAction()) return;
     abyssEntryTransition.value = "fade";
     enteredAbyss.value = true;
 }
 
-const baseGameFrame = computed(() => ({
+const gameFrameState = computed(() => ({
     mana: mana.value,
     sonicValue: sonicValue.value,
     abyssRunActive: abyssRunActive.value,
+    crushingDepth: crushingDepth.value,
+    clockGuidance: clockBroken.value && clockRecovery.value === 0,
+    canEscapeAbyssRun: !crushingDepth.value && canEscapeAbyssRun.value,
     activeCrystal: activeCrystal.value,
     canCondense: canCondense.value,
     manaCircle: manaCircle.value,
@@ -1388,6 +1465,9 @@ const baseGameFrame = computed(() => ({
     condensedMana: condensedMana.value,
     visibleTabs: visibleTabs.value,
     activeTab: activeTab.value,
+    timeRevealed: timeDiscovery.value === 2,
+    mountainUnlocked: mountainUnlocked.value,
+    timeEntrancePending: timeEntrancePending.value,
     activeSubtab: activeSubtab.value,
     pingedTabs: pingedTabs.value,
     pingedSubtabs: pingedSubtabs.value,
@@ -1428,6 +1508,9 @@ const baseGameFrame = computed(() => ({
 }));
 
 const baseGameFrameActions = {
+    completeTimeEntrance: () => { timeEntrancePending.value = false; },
+    completeTimeReveal,
+    updateTimeLabel: (label) => { timeLabel.value = label; },
     handlePrimaryResetAction,
     enterAbyss,
     escapeCrystal,
@@ -1516,6 +1599,7 @@ onBeforeUnmount(() => {
 
 <template>
     <div class="game-shell">
+        <div :inert="crushingDepth || clockDialogue || undefined">
         <output v-if="showFpsCounter" class="fps-counter" aria-label="Frames per second">{{ displayedFps }} FPS</output>
         <div
             v-if="activeCrystal >= 0"
@@ -1556,7 +1640,7 @@ onBeforeUnmount(() => {
         <BaseGameFrame
             v-if="!enteredAbyss"
             key="base-game-frame"
-            :frame="baseGameFrame"
+            :frame="gameFrameState"
             :actions="baseGameFrameActions"
         />
         <AbyssFrame
@@ -1583,14 +1667,29 @@ onBeforeUnmount(() => {
             v-if="newsTickerEnabled && !enteredAbyss"
             :key="messageTickerParticles ? 'particles' : 'text'"
             :particles="messageTickerParticles"
+            :paused="worldTimeStopped"
             @message-displayed="updateMessageTickerStatistics"
         />
         <footer>The Mana Paradox v0.0.15</footer>
         <GoalProgressBar :goal="nextGoal" :progress="nextGoalProgress" />
+        </div>
+        <ClockDialogue v-if="clockDialogue" @return="completeClockDialogue" @complete="clockDialogue = false" />
+        <DepthCrushing v-if="crushingDepth" @return="completeDepthCrushing" @complete="crushingDepth = false" />
     </div>
 </template>
 
 <style>
+.time-guidance { animation: time-blue-beacon 2s ease-in-out infinite !important; }
+@keyframes time-blue-beacon {
+    0%, 100% { box-shadow: 0 0 3px 1px #4ba9ff55, 0 0 10px 2px #319cfa33; }
+    50% { box-shadow: 0 0 9px 3px #66bdffbb, 0 0 25px 8px #319cfa55; color: #d0efff; }
+}
+.world-time-stopped .camera-particle,
+.world-time-stopped .camera-water,
+.world-time-stopped .camera-scanlines,
+.world-time-stopped .distant-lifeform,
+.world-time-stopped .abyss-structure { animation-play-state: paused !important; }
+
 .fps-counter {
     position: fixed;
     z-index: 2000;

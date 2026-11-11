@@ -1,3 +1,4 @@
+import { isGameTimeStopped } from "../game/time.js";
 import { buyMaxTierOne, castAll, castSpeed, condense, increaseMatrix, purifyMeridians, sealMeridians } from "./actions.js";
 
 export const KEYBIND_DEFINITIONS = [
@@ -52,7 +53,19 @@ export function displayKey(key: string): string {
 const keyDown: {[key: string]: boolean} = {};
 const keyPressed: {[key: string]: boolean} = {};
 
+let keybindsBlocked = false;
+export function setKeybindsBlocked(blocked: boolean): void {
+    keybindsBlocked = blocked;
+    for (const key of Object.keys(keyDown)) delete keyDown[key];
+    for (const key of Object.keys(keyPressed)) delete keyPressed[key];
+}
+
 export function tickKeybinds() {
+    if (keybindsBlocked || isGameTimeStopped()) {
+        for (const key of Object.keys(keyDown)) delete keyDown[key];
+        for (const key of Object.keys(keyPressed)) delete keyPressed[key];
+        return;
+    }
     const keys = new Set([...Object.keys(keyDown), ...Object.keys(keyPressed)]);
     for (const key of keys) {
         if (!keyDown[key] && !keyPressed[key]) continue;
@@ -67,7 +80,7 @@ function isInvalid(event: KeyboardEvent) {
 }
 
 window.addEventListener("keydown", (event) => {
-    if (isInvalid(event)) return;
+    if (keybindsBlocked || isInvalid(event)) return;
     if (!keyDown[event.key]) keyPressed[event.key] = true;
     keyDown[event.key] = true;
 });

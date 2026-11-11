@@ -5,6 +5,7 @@ import { saveGame } from "@game/systems/save.js";
 import { formatDecimal } from "@game/ui/formatting.js";
 
 defineProps({
+    clockGuidance: { type: Boolean, default: false },
     activeSubtab: { type: String, required: true },
     abyssRunActive: { type: Boolean, required: true },
     sonicValue: { type: String, required: true },
@@ -106,7 +107,7 @@ onBeforeUnmount(stopResonating);
             </div>
             <template v-if="activeSubtab === 'depths'">
                 <video id="abyss-vortex" :src="'./assets/videos/abyss-vortex.webm'" loop muted playsinline preload="metadata" aria-hidden="true" hidden></video>
-                <button id="enter-abyss" type="button" aria-label="Enter the Abyss" @click="$emit('enter-abyss')"></button>
+                <button :class="{ 'time-guidance': clockGuidance }" id="enter-abyss" type="button" aria-label="Enter the Abyss" @click="$emit('enter-abyss')"></button>
             </template>
             <div v-else-if="activeSubtab === 'abyss-resonance'" class="resonance-towers">
                 <article v-for="tower in towers" :key="tower.effect" class="resonance-tower" :class="{ locked: !tower.unlocked }">

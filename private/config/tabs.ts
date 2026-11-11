@@ -26,6 +26,10 @@ export const TABS = [
             { id: "abyss-resonance", label: "Resonance" },
         ]
     },
+    { id: "time", label: "????", icon: "⏱︎", requiresTime: true, subtabs: [
+        { id: "time-clock", label: "The Clock" },
+        { id: "time-mountain", label: "The Mountain", requiresMountain: true },
+    ] },
     {
         id: "manacircle",
         label: "Mana Circles",

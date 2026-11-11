@@ -1,3 +1,4 @@
+import { timeUpgradeMultiplierHandle } from "./time.js";
 import { addInto, addUS, ceilInto, copyInto, createDecimal, createZero, divInto, divUS, eq, gt, gte, log10Into, lt, lte, mulUS, powInto, powUS, subUS, writeDecimal, writeNumber } from "../core/break_eternity.js";
 import "../abyss/handles.js";
 import { abyssRunCondensePowerHandle, resonanceTowerEffectHandle } from "../abyss/abyss.js";
@@ -136,6 +137,7 @@ export function refreshCondenseGain(): void {
     if (hasTierOneAchievement(40)) mulUS(scratch.condenseGain, 2);
     if (hasMemoryMilestone(1)) mulUS(scratch.condenseGain, 2);
     remembrance_condensedManaModifiers(scratch.condenseGain);
+    mulUS(scratch.condenseGain, timeUpgradeMultiplierHandle(2));
     mulUS(scratch.condenseGain, resonanceTowerEffectHandle(5, 0.01));
     powUS(scratch.condenseGain, abyssRunCondensePowerHandle());
 }

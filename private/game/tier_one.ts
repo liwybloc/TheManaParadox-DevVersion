@@ -19,6 +19,8 @@ import {
     subInto,
     subUS,
     getMagnitude,
+    getLayer,
+    isFiniteDecimal,
     writeDecimal,
     writeNumber,
 } from "../core/break_eternity.js";
@@ -320,10 +322,16 @@ export function buyMaxTierOne(index: i32): bool {
         }
 
         calculateTierOneBulkCost(cost);
+        let corrections: i32 = 0;
         while (!lte(scratch.tierOneProduction, player.mana)) {
+            if (corrections++ >= 64 || !isFiniteDecimal(scratch.tierOneExponent) || !gt(scratch.tierOneExponent, 0)) return false;
+            const previousLayer = getLayer(scratch.tierOneExponent);
+            const previousMagnitude = getMagnitude(scratch.tierOneExponent);
             subUS(scratch.tierOneExponent, 1);
+            if (getLayer(scratch.tierOneExponent) === previousLayer && getMagnitude(scratch.tierOneExponent) === previousMagnitude) return false;
             calculateTierOneBulkCost(cost);
         }
+        if (!isFiniteDecimal(scratch.tierOneProduction)) return false;
         subUS(player.mana, scratch.tierOneProduction);
         addUS(tierOneAmountHandle(index), scratch.tierOneExponent);
         addUS(tierOneBoughtHandle(index), scratch.tierOneExponent);
@@ -368,13 +376,18 @@ function buyMaxTierOneAccelerated(index: i32): void {
     computeTierOneCostExponent(scratch.productionModifier, index, scratch.tierOneExponent);
     powInto(scratch.tierOneProduction, 10, scratch.productionModifier);
     applyTierOneCostModifiers(scratch.tierOneProduction, index);
+    let corrections: i32 = 0;
     while (gt(scratch.tierOneProduction, player.mana) && gte(scratch.tierOneExponent, boughtHandle)) {
+        if (corrections++ >= 64 || !isFiniteDecimal(scratch.tierOneExponent)) return;
+        const previousLayer = getLayer(scratch.tierOneExponent);
+        const previousMagnitude = getMagnitude(scratch.tierOneExponent);
         subUS(scratch.tierOneExponent, 1);
+        if (getLayer(scratch.tierOneExponent) === previousLayer && getMagnitude(scratch.tierOneExponent) === previousMagnitude) return;
         computeTierOneCostExponent(scratch.productionModifier, index, scratch.tierOneExponent);
         powInto(scratch.tierOneProduction, 10, scratch.productionModifier);
         applyTierOneCostModifiers(scratch.tierOneProduction, index);
     }
-    if (!gte(scratch.tierOneExponent, boughtHandle)) return;
+    if (!gte(scratch.tierOneExponent, boughtHandle) || !isFiniteDecimal(scratch.tierOneProduction)) return;
 
     subUS(player.mana, scratch.tierOneProduction);
     addUS(scratch.tierOneExponent, 1);

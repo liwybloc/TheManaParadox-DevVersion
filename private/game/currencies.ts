@@ -7,6 +7,7 @@ import {
     getLayer,
     getMagnitude,
     getSign,
+    isFiniteDecimal,
     gt,
     log10Into,
     mulUS,
@@ -66,6 +67,11 @@ export function getIncType(): i32 {
 
 export function gainCurrency(currency: i32, amount: i32): void {
     gainCurrencyInternal(currency, amount, false);
+}
+
+export function clearProductionRates(): void {
+    writeNumber(scratch.manaPerSecond, 0);
+    writeNumber(scratch.oomPerSecond, 0);
 }
 
 export function gainProductionCurrency(currency: i32, amount: i32): void {
@@ -197,6 +203,8 @@ export function addCondenseTime(amount: i32): void {
 }
 
 export function addGameTime(amount: i32): void {
+    if (!isFiniteDecimal(amount) || !gt(amount, 0)) return;
+    if (!isFiniteDecimal(player.statistics_gameTimePlayed) || !isFiniteDecimal(player.statistics_gameTimeThisCondense)) return;
     addUS(player.statistics_gameTimePlayed, amount);
     addUS(player.statistics_gameTimeThisCondense, amount);
     if (player.count_manaConduit === 0

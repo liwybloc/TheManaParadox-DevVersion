@@ -1,3 +1,5 @@
+import { isWorldTimeStopped } from "../game/time.js";
+let visualTime = performance.now();
 const sky = document.getElementById("sky") as HTMLCanvasElement;
 const skyContext = sky.getContext("2d")!;
 let context = skyContext;
@@ -71,7 +73,7 @@ function resizeSky(): void {
             star.y = star.y / previousHeight * height;
         }
     }
-    drawStars(performance.now());
+    drawStars(visualTime);
 }
 
 function drawStars(timestamp: number): void {
@@ -133,14 +135,25 @@ function drawAbyss(timestamp: number): void {
     context.shadowBlur = 0;
 }
 
+let previousVisualTime = performance.now();
+let visualsStopped = false;
 function animateStars(timestamp: number): void {
     requestAnimationFrame(animateStars);
+    const stopped = isWorldTimeStopped();
+    const visualDelta = Math.max(0, timestamp - previousVisualTime);
+    previousVisualTime = timestamp;
+    if (stopped !== visualsStopped) {
+        visualsStopped = stopped;
+        updateAbyssVortexPlayback();
+    }
+    if (stopped) { previousFrame = timestamp; return; }
+    visualTime += visualDelta;
     if (!visible || document.hidden || timestamp - previousRenderedFrame < STAR_FRAME_INTERVAL) return;
     const elapsedSeconds = Math.min(0.1, Math.max(0, timestamp - previousFrame) / 1000);
     previousFrame = timestamp;
     previousRenderedFrame = timestamp;
     if (abyssActive) {
-        drawAbyss(timestamp);
+        drawAbyss(visualTime);
         return;
     }
     if (animationEnabled && manaProgress > 0) {
@@ -150,7 +163,7 @@ function animateStars(timestamp: number): void {
             star.y = (star.y + star.directionY * distance + height) % height;
         }
     }
-    drawStars(timestamp);
+    drawStars(visualTime);
 }
 
 export function starsVisible(): boolean {
@@ -165,13 +178,13 @@ export function setStarsVisible(nextVisible: boolean): void {
     visible = nextVisible;
     document.body.classList.toggle("effects-disabled", !nextVisible);
     localStorage.setItem(STARS_VISIBLE_STORAGE_KEY, String(nextVisible));
-    if (nextVisible) drawStars(performance.now());
+    if (nextVisible) drawStars(visualTime);
 }
 
 export function setStarsAnimated(animated: boolean): void {
     animationEnabled = animated;
     localStorage.setItem(STARS_ANIMATED_STORAGE_KEY, String(animated));
-    drawStars(performance.now());
+    drawStars(visualTime);
 }
 
 export function setStarManaProgress(progress: number): void {
@@ -181,10 +194,10 @@ export function setStarManaProgress(progress: number): void {
 export function setAbyssActive(active: boolean): void {
     abyssActive = active;
     updateAbyssVortexPlayback();
-    if (active) drawAbyss(performance.now());
+    if (active) drawAbyss(visualTime);
     else {
         context = skyContext;
-        drawStars(performance.now());
+        drawStars(visualTime);
     }
 }
 
@@ -201,7 +214,7 @@ function updateAbyssVortexPlayback(): void {
         return;
     }
     abyssVortex.hidden = !active;
-    if (active) void abyssVortex.play().catch(() => {});
+    if (active && !isWorldTimeStopped()) void abyssVortex.play().catch(() => {});
     else abyssVortex.pause();
 }
 

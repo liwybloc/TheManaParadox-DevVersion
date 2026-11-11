@@ -11,6 +11,7 @@ export function formatDecimals(
     handles: readonly number[],
     decimals: number | readonly number[] = 2,
     boundaryLabel: string | readonly string[] = "Unknown",
+    respectBoundary = true,
 ): string[] {
     if (handles.length === 0) return [];
     const transfer = getDecimalFormatTransfer();
@@ -25,7 +26,7 @@ export function formatDecimals(
             transfer[component],
             transfer[component + 1],
             transfer[component + 2],
-            transfer[component + 3] !== 0,
+            respectBoundary && transfer[component + 3] !== 0,
             typeof decimals === "number" ? decimals : decimals[index],
             typeof boundaryLabel === "string" ? boundaryLabel : boundaryLabel[index],
         );

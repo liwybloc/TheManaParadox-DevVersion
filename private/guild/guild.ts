@@ -1,3 +1,5 @@
+import { refreshCourageMultiplier } from "../game/courage.js";
+import { applyTimeUpgradePower, timeUpgradeMultiplierHandle, isGameTimeStopped } from "../game/time.js";
 import { addUS, copyInto, createDecimal, createZero, divUS, getMagnitude, getSign, gt, gte, log10Into, lte, mulUS, powUS, subUS, writeDecimal, writeNumber } from "../core/break_eternity.js";
 import { checkCoinAchievements, consumeCircularHabitsReward, hasTierOneAchievement, unlockTierOneAchievement } from "../game/achievements.js";
 import { crystalRewardHandle, hasCompletedCrystal, isAllMultipliersDisabledCrystalActive, isCrystalActive, isPotionDisabledCrystalActive, isProducerOnlyCrystalActive } from "../game/crystals.js";
@@ -726,16 +728,30 @@ function potionTimer(itemId: i32, index: i32): i32 {
 }
 
 export function getGameSpeed(): i32 {
+    if (isGameTimeStopped()) {
+        writeNumber(scratch.effectiveGameSpeed, 0);
+        return scratch.effectiveGameSpeed;
+    }
+    return getUnstoppedGameSpeed();
+}
+
+export function getUnstoppedGameSpeed(): i32 {
     if (isProducerOnlyCrystalActive() || isAllMultipliersDisabledCrystalActive()) {
-        writeNumber(scratch.effectiveGameSpeed, 1);
+        copyInto(scratch.effectiveGameSpeed, timeUpgradeMultiplierHandle(1));
+        applyTimeUpgradePower(scratch.effectiveGameSpeed, 1);
         return scratch.effectiveGameSpeed;
     }
     copyInto(scratch.effectiveGameSpeed, scratch.gameSpeed);
     writeNumber(scratch.productionModifier, equipmentGameSpeedMultiplier());
     mulUS(scratch.effectiveGameSpeed, scratch.productionModifier);
-    if (gt(player.courageTimer, 0)) mulUS(scratch.effectiveGameSpeed, player.courageMultiplier);
+    if (gt(player.courageTimer, 0)) {
+        refreshCourageMultiplier();
+        mulUS(scratch.effectiveGameSpeed, player.courageMultiplier);
+    }
     if (isFocusing()) mulUS(scratch.effectiveGameSpeed, focusGameSpeedMultiplier());
     divUS(scratch.effectiveGameSpeed, abyssGameSpeedDivisorHandle());
+    mulUS(scratch.effectiveGameSpeed, timeUpgradeMultiplierHandle(1));
+    applyTimeUpgradePower(scratch.effectiveGameSpeed, 1);
     return scratch.effectiveGameSpeed;
 }
 

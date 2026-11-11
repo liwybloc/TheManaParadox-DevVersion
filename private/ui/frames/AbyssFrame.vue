@@ -10,6 +10,8 @@ const props = defineProps({
 });
 const emit = defineEmits(["leave-abyss", "begin-run"]);
 
+const clockGuidance = ref(namedWasm.isClockBroken() && namedWasm.getClockRecoveryStage() === 0);
+const abyssTabs = computed(() => ABYSS_TABS.map((tab) => ({ ...tab, guided: clockGuidance.value })));
 const activeTab = ref(ABYSS_TABS[0].id);
 const entering = ref(props.entryTransition === "zoom");
 const vortex = ref(null);
@@ -62,6 +64,7 @@ function stopMovement(direction) {
 function updateAbyssDisplay() {
     sonicValue.value = formatDecimal(namedWasm.sonicValueLogarithmicHandle(), 6);
     depth.value = namedWasm.getAbyssDepth();
+    clockGuidance.value = namedWasm.isClockBroken() && namedWasm.getClockRecoveryStage() === 0;
     highestCompletedDepth.value = namedWasm.getHighestAbyssDepthCompleted();
     minimumDepth.value = namedWasm.abyssMinimumDepth();
 }
@@ -144,7 +147,7 @@ onBeforeUnmount(() => {
             </header>
 
             <TabNavigation
-                :tabs="ABYSS_TABS"
+                :tabs="abyssTabs"
                 :active-tab="activeTab"
                 @select-tab="activeTab = $event"
             />
@@ -194,6 +197,7 @@ onBeforeUnmount(() => {
                             <div class="traversal-controls">
                                 <button
                                     type="button"
+                                    :class="{ 'time-guidance': clockGuidance && depth >= 8000 }"
                                     :disabled="depth <= minimumDepth"
                                     @pointerdown="setMovement(-1)"
                                     @pointerup="stopMovement(-1)"
@@ -202,13 +206,14 @@ onBeforeUnmount(() => {
                                 >Hold to rise</button>
                                 <button
                                     type="button"
+                                    :class="{ 'time-guidance': clockGuidance && depth <= 7750 }"
                                     @pointerdown="setMovement(1)"
                                     @pointerup="stopMovement(1)"
                                     @pointerleave="stopMovement(1)"
                                     @pointercancel="stopMovement(1)"
                                 >Hold to descend</button>
                             </div>
-                            <button class="begin-abyss-run" type="button" @click="usePrimaryAction">
+                            <button :class="{ 'time-guidance': clockGuidance && depth > 7750 && depth < 8000 }" class="begin-abyss-run" type="button" @click="usePrimaryAction">
                                 {{ depth <= minimumDepth ? "Exit the Abyss" : "Begin Run" }}
                             </button>
                         </aside>

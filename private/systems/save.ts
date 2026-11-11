@@ -1,7 +1,7 @@
-import { getLayer, getMagnitude, getSign, writeDecimal } from "../core/break_eternity.js";
+import { getLayer, getMagnitude, getSign, isFiniteDecimal, writeDecimal } from "../core/break_eternity.js";
 import { checkOfflineAchievement, hasBoostedProducerThisCondense, hasCombatUsedNonFreeze, hasPotionUsedThisCondense, hasTierOneAchievement as hasAchievement, refreshAchievementRewards, setBoostedProducerThisCondense, setCombatUsedNonFreeze, setPotionUsedThisCondense, setTierOneAchievement, unlockTierOneAchievement } from "../game/achievements.js";
 import { getTotalMessageTickersSeen, hasSeenMessageTicker, MESSAGE_TICKER_COUNT, setSeenMessageTicker, setTotalMessageTickersSeen } from "../game/message_tickers.js";
-import { getTotalMemories, isFocusing, setFocusing, setTotalMemories } from "../game/memories.js";
+import { getMemoryPityFailures, setMemoryPityFailures, getTotalMemories, isFocusing, setFocusing, setTotalMemories } from "../game/memories.js";
 import { CRYSTALS, getActiveCrystal, getFastestCrystalShatter, hasCompletedCrystal, setActiveCrystal, setCompletedCrystal, setFastestCrystalShatter } from "../game/crystals.js";
 import { clampManaToInfinityBoundary, updateHighestManaReached } from "../game/currencies.js";
 import { isCourageUnlocked, setCourageUnlocked } from "../game/courage.js";
@@ -17,12 +17,14 @@ import { AUTOCASTER_HANDLES, autocasterActionCooldown, autocasterAssignment, aut
 import { MAX_AUTOCASTERS } from "../config/autocasters.js";
 import { ABYSS_HANDLES } from "../abyss/handles.js";
 import { isInAbyss, setInAbyss } from "../abyss/abyss-tabs.js";
-import { getAbyssAreaCompletions, getAbyssDepth, getAbyssRewardAreaCompletions, getAbyssRunDepth, getAbyssRunTime, getAbyssRunsCompleted, getHighestAbyssDepthCompleted, getLastCompletedAbyssArea, isAbyssRunActive, setAbyssAreaCompletions, setAbyssDepth, setAbyssRewardAreaCompletions, setAbyssRunActive, setAbyssRunDepth, setAbyssRunsCompleted, setAbyssRunTime, setHighestAbyssDepthCompleted, setLastCompletedAbyssArea } from "../abyss/abyss.js";
+import { getTimeDiscovery, setTimeDiscovery, getAbyssAreaCompletions, getAbyssDepth, getAbyssRewardAreaCompletions, getAbyssRunDepth, getAbyssRunTime, getAbyssRunsCompleted, getHighestAbyssDepthCompleted, getLastCompletedAbyssArea, isAbyssRunActive, setAbyssAreaCompletions, setAbyssDepth, setAbyssRewardAreaCompletions, setAbyssRunActive, setAbyssRunDepth, setAbyssRunsCompleted, setAbyssRunTime, setHighestAbyssDepthCompleted, setLastCompletedAbyssArea } from "../abyss/abyss.js";
+
+import { isMountainUnlocked, setMountainUnlocked, checkClockAchievements, getClockOffsetSeconds, setClockOffsetSeconds, getClockBrokenAt, setClockBrokenAt, getClockRecoveryStage, setClockRecoveryStage, getClockRepairPieces, setClockRepairPieces, getTimeDrainMode, setTimeDrainMode, TIME_HANDLES, initializeLifetimeTimeTotals, setStoredRealTime, setStoredGameTime, getTimeDrainStartedAt, setTimeDrainStartedAt, timeUpgradeLevel, setTimeUpgradeLevel, getWorldPausedMilliseconds, setWorldPausedMilliseconds } from "../game/time.js";
 
 const STORAGE_KEY = "saveData" + (window.location.href.toLowerCase().includes("dev") ? "Dev" : "");
 const RECOVERY_STORAGE_KEY = STORAGE_KEY + "Recovery";
 const SAVE_PREFIX = "TheManaParadoxSaveFormat";
-const CURRENT_SAVE_VERSION = "032";
+const CURRENT_SAVE_VERSION = "036";
 const SAVE_SUFFIX = "EndOfSaveData";
 const DECIMAL_BYTES = 13;
 const AUTOSAVE_INTERVAL = 30_000;
@@ -36,6 +38,7 @@ export interface SaveValue<T> {
 
 export interface SaveField {
     readonly byteLength: number;
+    readonly decimalHandle?: i32;
     write(view: DataView, offset: number): void;
     read(view: DataView, offset: number): void;
     reset(): void;
@@ -499,6 +502,43 @@ const savedFields032: readonly SaveField[] = [
     ...achievementSaveFields(3, 52),
 ];
 
+const savedFields033: readonly SaveField[] = [
+    ...savedFields032,
+    callbackInt32SaveField(getMemoryPityFailures, setMemoryPityFailures),
+    callbackInt32SaveField(getTimeDiscovery, setTimeDiscovery),
+    callbackNumberSaveField(getClockOffsetSeconds, setClockOffsetSeconds),
+    callbackNumberSaveField(getClockBrokenAt, setClockBrokenAt),
+    callbackInt32SaveField(getClockRecoveryStage, setClockRecoveryStage),
+    callbackInt32SaveField(getClockRepairPieces, setClockRepairPieces),
+    callbackInt32SaveField(getTimeDrainMode, setTimeDrainMode),
+    callbackNumberSaveField(() => 0, setStoredRealTime),
+    callbackNumberSaveField(() => 0, setStoredGameTime),
+    callbackNumberSaveField(getTimeDrainStartedAt, setTimeDrainStartedAt),
+    ...Array.from({ length: 12 }, (_, index) => callbackInt32SaveField(
+        () => timeUpgradeLevel(index), (value) => setTimeUpgradeLevel(index, value),
+    )),
+    callbackNumberSaveField(getWorldPausedMilliseconds, setWorldPausedMilliseconds),
+    decimalSaveField(TIME_HANDLES.storedRealTime, [0, 0, 0]),
+    decimalSaveField(TIME_HANDLES.storedGameTime, [0, 0, 0]),
+    decimalSaveField(TIME_HANDLES.totalRealTime, [0, 0, 0]),
+    decimalSaveField(TIME_HANDLES.totalGameTime, [0, 0, 0]),
+];
+
+const savedFields034: readonly SaveField[] = [
+    ...savedFields033,
+    ...achievementSaveFields(3, 60),
+];
+
+const savedFields035: readonly SaveField[] = [
+    ...savedFields034,
+    booleanSaveField(isMountainUnlocked, setMountainUnlocked),
+];
+
+const savedFields036: readonly SaveField[] = [
+    ...savedFields035,
+    ...achievementSaveFields(2, 63),
+];
+
 const savedFieldsByVersion: readonly (readonly SaveField[])[] = [
     savedFields001, savedFields002, savedFields003,
     savedFields004, savedFields005, savedFields006,
@@ -510,9 +550,9 @@ const savedFieldsByVersion: readonly (readonly SaveField[])[] = [
     savedFields022, savedFields023, savedFields024,
     savedFields025, savedFields026, savedFields027,
     savedFields028, savedFields029, savedFields030,
-    savedFields031, savedFields032,
+    savedFields031, savedFields032, savedFields033, savedFields034, savedFields035, savedFields036,
 ];
-const currentSaveFields = savedFields032;
+const currentSaveFields = savedFields036;
 
 const condenseResetFields: readonly SaveField[] = [
     ...savedFields001,
@@ -557,11 +597,12 @@ export async function importSave(saveData: string): Promise<void> {
     const version = saveData.slice(SAVE_PREFIX.length, SAVE_PREFIX.length + 3);
     const encoded = saveData.slice(SAVE_PREFIX.length + 3, -SAVE_SUFFIX.length);
     const versionIndex = Number(version) - 1;
-    const fields = savedFieldsByVersion[versionIndex];
+    const mergedTimeVersion = versionIndex >= 32 && versionIndex <= 35;
+    const fields = mergedTimeVersion ? currentSaveFields : savedFieldsByVersion[versionIndex];
     if (!fields || String(versionIndex + 1).padStart(3, "0") !== version) {
         throw new Error(`Unsupported Mana Paradox save version ${version}`);
     }
-    await importFields(encoded, fields, versionIndex >= 8);
+    await importFields(encoded, fields, versionIndex >= 8, mergedTimeVersion);
     if (hasGuildShopUpgrade(2)) unlockTierOneAchievement(51);
     if (versionIndex < 21) setAutocasterPurifyMinimumRelativeMultiplier(legacyAutocasterPurifyMinimum.value);
     if (getActiveCrystal() >= 0) setFocusing(false);
@@ -590,12 +631,17 @@ function simulateOfflineTime(): void {
     void simulateTime(offlineSeconds, false);
 }
 
-async function importFields(encoded: string, fields: readonly SaveField[], compressed = false): Promise<void> {
+async function importFields(encoded: string, fields: readonly SaveField[], compressed = false, mergedTimeVersion = false): Promise<void> {
     const bytesRaw = base64ToBytes(encoded);
     const bytes = compressed ? await decompressBytes(bytesRaw) : bytesRaw;
     const expectedLength = totalByteLength(fields);
     const currentVersionFields = fields === currentSaveFields;
-    if (!development && (!currentVersionFields || bytes.length > expectedLength) && bytes.length !== expectedLength) {
+    if (mergedTimeVersion) {
+        const baseLength = totalByteLength(savedFields032);
+        const acceptedLengths = [baseLength + 4, baseLength + 8, baseLength + 24, baseLength + 60, baseLength + 108, baseLength + 116, baseLength + 168, baseLength + 171, baseLength + 172, expectedLength];
+        if (!acceptedLengths.includes(bytes.length)) throw new Error(`Invalid time save payload length: ${bytes.length}`);
+    }
+    if (!mergedTimeVersion && !development && (!currentVersionFields || bytes.length > expectedLength) && bytes.length !== expectedLength) {
         throw new Error(`Invalid save payload length: expected ${expectedLength} bytes, received ${bytes.length}`);
     }
     for (const field of currentSaveFields) field.reset();
@@ -606,6 +652,8 @@ async function importFields(encoded: string, fields: readonly SaveField[], compr
         field.read(view, offset);
         offset += field.byteLength;
     }
+    if (mergedTimeVersion && bytes.length < totalByteLength(savedFields033)) initializeLifetimeTimeTotals();
+    checkClockAchievements();
 }
 
 function totalByteLength(fields: readonly SaveField[]): number {
@@ -615,6 +663,7 @@ function totalByteLength(fields: readonly SaveField[]): number {
 export function decimalSaveField(handle: i32, defaultValue: readonly [number, number, number]): SaveField {
     return {
         byteLength: DECIMAL_BYTES,
+        decimalHandle: handle,
         write: (view, offset) => writeDecimalRecord(view, offset, handle),
         read: (view, offset) => readDecimalRecord(view, offset, handle, defaultValue),
         reset: () => writeDecimal(handle, defaultValue[0], defaultValue[1], defaultValue[2]),
@@ -737,6 +786,57 @@ export async function loadGame(): Promise<boolean> {
     }
 }
 
+function savedDecimalName(handle: i32): string {
+    for (const [group, handles] of [["player", HANDLES], ["time", TIME_HANDLES], ["abyss", ABYSS_HANDLES], ["condensed", CONDENSED_HANDLES], ["autocasters", AUTOCASTER_HANDLES]] as const) {
+        for (const [name, candidate] of Object.entries(handles)) if (candidate === handle) return `${group}.${name}`;
+    }
+    return `Decimal handle ${handle}`;
+}
+
+export function inspectInvalidSavedDecimals(): { name: string; handle: number }[] {
+    return currentSaveFields.filter((field) => field.decimalHandle !== undefined
+        && (Number.isNaN(getMagnitude(field.decimalHandle)) || !Number.isInteger(getLayer(field.decimalHandle))
+            || ![-1, 0, 1].includes(getSign(field.decimalHandle))))
+        .map((field) => ({ name: savedDecimalName(field.decimalHandle!), handle: field.decimalHandle! }));
+}
+
+export async function repairGameTime(): Promise<string[]> {
+    const damaged = [HANDLES.statistics_gameTimePlayed, HANDLES.statistics_gameTimeThisCondense]
+        .filter((handle) => !isFiniteDecimal(handle));
+    const recovered: string[] = [];
+    for (const key of [STORAGE_KEY, RECOVERY_STORAGE_KEY]) {
+        if (damaged.length === 0) break;
+        const snapshot = localStorage.getItem(key);
+        if (!snapshot || !snapshot.startsWith(SAVE_PREFIX) || !snapshot.endsWith(SAVE_SUFFIX)) continue;
+        const version = Number(snapshot.slice(SAVE_PREFIX.length, SAVE_PREFIX.length + 3));
+        const fields = version >= 33 && version <= 36 ? currentSaveFields : savedFieldsByVersion[version - 1];
+        if (!fields) continue;
+        const encoded = snapshot.slice(SAVE_PREFIX.length + 3, -SAVE_SUFFIX.length);
+        const raw = base64ToBytes(encoded);
+        const bytes = version >= 9 ? await decompressBytes(raw) : raw;
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        let offset = 0;
+        for (const field of fields) {
+            if (offset + field.byteLength > bytes.length) break;
+            const handle = field.decimalHandle;
+            if (handle !== undefined && damaged.includes(handle)) {
+                const layer = view.getInt32(offset, true);
+                const sign = view.getInt8(offset + 4);
+                const magnitude = view.getFloat64(offset + 5, true);
+                if ([-1, 0, 1].includes(sign) && Number.isFinite(magnitude)) {
+                    writeDecimal(handle, sign, layer, magnitude);
+                    damaged.splice(damaged.indexOf(handle), 1);
+                    recovered.push(savedDecimalName(handle));
+                }
+            }
+            offset += field.byteLength;
+        }
+    }
+    if (damaged.length > 0) throw new Error(`No valid saved backup found for ${damaged.map(savedDecimalName).join(", ")}`);
+    if (recovered.length > 0) await saveGame();
+    return recovered;
+}
+
 function writeDecimalRecord(view: DataView, offset: number, handle: i32): void {
     const layer = getLayer(handle);
     const sign = getSign(handle);
@@ -747,7 +847,7 @@ function writeDecimalRecord(view: DataView, offset: number, handle: i32): void {
     if (sign !== -1 && sign !== 0 && sign !== 1) {
         throw new Error(`Decimal sign ${sign} cannot be represented by the save format`);
     }
-    if (Number.isNaN(magnitude)) throw new Error("NaN Decimal cannot be represented by the save format");
+    if (Number.isNaN(magnitude)) throw new Error(`NaN Decimal in ${savedDecimalName(handle)} cannot be represented by the save format`);
     view.setInt32(offset, layer, true);
     view.setInt8(offset + 4, sign);
     view.setFloat64(offset + 5, magnitude, true);
@@ -810,5 +910,7 @@ const hadStoredSave = localStorage.getItem(STORAGE_KEY) !== null;
 const loadedStoredSave = await loadGame();
 if (hadStoredSave && !loadedStoredSave) savingEnabled = false;
 (window as any).saveGame = saveGame;
+(window as any).repairGameTime = repairGameTime;
+(window as any).inspectInvalidSavedDecimals = inspectInvalidSavedDecimals;
 window.setInterval(saveGame, AUTOSAVE_INTERVAL);
 window.addEventListener("pagehide", saveGame);

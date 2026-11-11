@@ -1,3 +1,4 @@
+import { applyTimeUpgradePower, timeUpgradeMultiplierHandle, getClockRecoveryStage, setClockRecoveryStage, isClockBroken } from "../game/time.js";
 import { addUS, clampToBoundary, copyInto, divInto, divUS, gt, gte, log10Into, lt, mulUS, pow10Into, powUS, subUS, writeNumber } from "../core/break_eternity.js";
 import type { AbyssHandles } from "./handles.js";
 import { hasMemoryMilestone } from "../game/memories.js";
@@ -16,6 +17,17 @@ const ABYSS_REWARDED_COMPLETIONS: i32 = 5;
 const SONIC_LOGARITHMIC_LIMIT: f64 = 308.25471555991675;
 const ABYSS_EFFECT_CYCLE_START: f64 = 7_750;
 const ABYSS_EFFECT_CYCLE_LENGTH: f64 = 6_750;
+let timeDiscovery: i32 = 0;
+
+export function getTimeDiscovery(): i32 { return timeDiscovery; }
+export function setTimeDiscovery(value: i32): void { timeDiscovery = value < 0 ? 0 : value > 2 ? 2 : value; }
+export function canDiscoverTime(): bool {
+    if (timeDiscovery !== 0 || highestAbyssDepthCompleted <= 7_000 || !abyssRunActive || abyssRunDepth <= 7_750) return false;
+    const value = totalSonicValueLogarithmicHandle();
+    writeNumber(abyss.calculationA, 0.005);
+    return gt(value, abyss.calculationA);
+}
+
 let abyssDepth: f64 = ABYSS_MINIMUM_DEPTH;
 let abyssMovement: i32 = 0;
 let abyssRunActive = false;
@@ -41,6 +53,7 @@ export function tickAbyssTraversal(deltaSeconds: f64): void {
 
 export function beginAbyssRun(): bool {
     if (abyssDepth <= ABYSS_MINIMUM_DEPTH || abyssRunActive) return false;
+    if (isClockBroken() && getClockRecoveryStage() === 0 && abyssDepth > 7_750 && abyssDepth < 8_000) setClockRecoveryStage(1);
     abyssRunDepth = abyssDepth;
     abyssRunTime = 0;
     abyssRunActive = true;
@@ -48,8 +61,12 @@ export function beginAbyssRun(): bool {
     return true;
 }
 
+export function canEscapeAbyssRun(): bool {
+    return abyssRunActive && !canDiscoverTime();
+}
+
 export function escapeAbyssRun(): bool {
-    if (!abyssRunActive) return false;
+    if (!canEscapeAbyssRun()) return false;
     abyssRunActive = false;
     abyssRunTime = 0;
     return true;
@@ -378,12 +395,18 @@ export function resonanceInvestmentLogarithmicHandle(index: i32): i32 {
     return sonicLogarithmicValueHandle(resonanceHandle(index));
 }
 
+export function effectiveResonanceInvestmentLogarithmicHandle(index: i32): i32 {
+    sonicLogarithmicValueHandle(resonanceHandle(index));
+    if (gt(abyss.logarithmicValue, 0)) mulUS(abyss.logarithmicValue, timeUpgradeMultiplierHandle(4));
+    return abyss.logarithmicValue;
+}
+
 export function isResonanceTowerUnlocked(index: i32): bool {
     return index >= 0 && index < 9 && highestAbyssDepthCompleted >= 1_250 + <f64>index * 750;
 }
 
 export function resonanceTowerBonusHandle(index: i32): i32 {
-    sonicLogarithmicValueHandle(resonanceHandle(index));
+    effectiveResonanceInvestmentLogarithmicHandle(index);
     if (!gt(abyss.logarithmicValue, 0)) {
         writeNumber(abyss.resonanceBonus, 1);
         return abyss.resonanceBonus;
@@ -398,11 +421,12 @@ export function resonanceTowerBonusHandle(index: i32): i32 {
     writeNumber(abyss.calculationB, index === 0 ? 0.26989700043360187 : 0.16989700043360187);
     addUS(abyss.calculationA, abyss.calculationB);
     pow10Into(abyss.resonanceBonus, abyss.calculationA);
+    applyTimeUpgradePower(abyss.resonanceBonus, 4);
     return abyss.resonanceBonus;
 }
 
 export function resonancePerBoostBonusHandle(): i32 {
-    sonicLogarithmicValueHandle(resonanceHandle(8));
+    effectiveResonanceInvestmentLogarithmicHandle(8);
     if (!gt(abyss.logarithmicValue, 0)) {
         writeNumber(abyss.perBoostBonus, 0);
         return abyss.perBoostBonus;
@@ -416,6 +440,9 @@ export function resonancePerBoostBonusHandle(): i32 {
     powUS(abyss.perBoostBonus, abyss.calculationA);
     writeNumber(abyss.calculationB, 0.0125);
     mulUS(abyss.perBoostBonus, abyss.calculationB);
+    addUS(abyss.perBoostBonus, 1);
+    applyTimeUpgradePower(abyss.perBoostBonus, 4);
+    subUS(abyss.perBoostBonus, 1);
     writeNumber(abyss.calculationB, 0.5);
     if (gt(abyss.perBoostBonus, abyss.calculationB)) copyInto(abyss.perBoostBonus, abyss.calculationB);
     return abyss.perBoostBonus;
@@ -460,6 +487,14 @@ export function completeAbyssRun(): bool {
     abyssRunsCompleted++;
     abyssRunActive = false;
     return true;
+}
+
+export function totalSonicValueLogarithmicHandle(): i32 {
+    copyInto(abyss.sonicDivisor, sonicValueLogarithmicHandle());
+    for (let index: i32 = 0; index < 9; index++) {
+        addUS(abyss.sonicDivisor, sonicLogarithmicValueHandle(resonanceHandle(index)));
+    }
+    return abyss.sonicDivisor;
 }
 
 export function sonicValueHandle(): i32 { return abyss.sonicValue; }

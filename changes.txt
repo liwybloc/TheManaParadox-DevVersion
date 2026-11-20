@@ -1,8 +1,9 @@
 v0.0.15
-- added Memory pity, which builds on failed attempts above a 5% chance and increases your chance up to 99%
+- added Abyss and sonic value and resonance towers
+- added Memory pity, which increases on fails (only for ones above a 5% chance so u cant just wait to get infinite memories) and increases your chance up to 99%. if u lose then uhm uh uhm
 - added a new Abyss event that unlocks Time
 - added a clock system
 - added Time Power and a mysterious note that unlocks The Mountain subtab (wip)
-- added five new Time achievements and achievement images
+- added five new achievements
 - added Time upgrades
 - balance changes and bug fixes

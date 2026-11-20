@@ -1,14 +1,9 @@
-v0.0.14
-- most stuff mentioned in comments is fixed now!!
-- added sell spare equipment button
-- added Crystals 6 through 15
-- added more Memory milestones and improved Focus
-- added Memorials and the Remembrance upgrade tree, unlocked at 500 Memories
-- added the Abyss and Abyssal Resonance tabs (wip)
-- added five new achievements and achievement images
-- added the option to pause and resume autocasters
-- made assigning multiple autocasters to the same task reduce its cooldown by 2x each time
-- added a Purify Meridians keybind and a reset button for Crystal challenges
-- improved Crystal navigation, displays, and completion updates
-- added game time spent in the current Condense to statistics
-- balance changes, optimizations, and bug fixes
+v0.0.15
+- added Abyss and sonic value and resonance towers
+- added Memory pity, which increases on fails (only for ones above a 5% chance so u cant just wait to get infinite memories) and increases your chance up to 99%. if u lose then uhm uh uhm
+- added a new Abyss event that unlocks Time
+- added a clock system
+- added Time Power and a mysterious note that unlocks The Mountain subtab (wip)
+- added five new achievements
+- added Time upgrades
+- balance changes and bug fixes

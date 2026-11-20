@@ -8,6 +8,7 @@ import {
     gt,
     gte,
     log10Into,
+    lt,
     lte,
     multiplyInto,
     mulUS,
@@ -17,7 +18,9 @@ import {
     powUS,
     subInto,
     subUS,
-    toNumber,
+    getMagnitude,
+    getLayer,
+    isFiniteDecimal,
     writeDecimal,
     writeNumber,
 } from "../core/break_eternity.js";
@@ -29,6 +32,8 @@ import { getTotalMemories, hasMemoryMilestone } from "./memories.js";
 import type { Player } from "../core/player.js";
 import type { Scratch } from "../core/scratch.js";
 import { remembrance_costScalingNerf } from "./remembrance.js";
+import "../abyss/handles.js";
+import { abyssRunProducerCostPowerHandle, abyssRunPurificationPowerHandle, resonancePerBoostBonusHandle, resonanceTowerEffectHandle } from "../abyss/abyss.js";
 
 declare const player: Player;
 declare const scratch: Scratch;
@@ -112,10 +117,25 @@ export function refreshMeridianPurificationEffect(): void {
     powInto(player.meridianPurificationEffect, scratch.productionModifier, scratch.tierOneExponent);
     mulUS(player.meridianPurificationEffect, PURIFICATION_BASE_MULTIPLIER);
     if (hasTierOneAchievement(17)) mulUS(player.meridianPurificationEffect, 5);
-    if (toNumber(player.meridianPurificationEffect) < PURIFICATION_MINIMUM_EFFECT) {
+    writeNumber(scratch.tierOneExponent, PURIFICATION_MINIMUM_EFFECT);
+    if (lt(player.meridianPurificationEffect, scratch.tierOneExponent)) {
         writeNumber(player.meridianPurificationEffect, PURIFICATION_MINIMUM_EFFECT);
     }
     divInto(scratch.purificationRelativeIncrease, player.meridianPurificationEffect, player.purifiedMeridiansMultiplier);
+}
+
+export function effectivePurifiedMeridiansMultiplierHandle(): i32 {
+    copyInto(scratch.tierOneProduction, player.purifiedMeridiansMultiplier);
+    mulUS(scratch.tierOneProduction, resonanceTowerEffectHandle(6, 2));
+    powUS(scratch.tierOneProduction, abyssRunPurificationPowerHandle());
+    return scratch.tierOneProduction;
+}
+
+export function effectiveMeridianPurificationEffectHandle(): i32 {
+    copyInto(scratch.currencyGain, player.meridianPurificationEffect);
+    mulUS(scratch.currencyGain, resonanceTowerEffectHandle(6, 2));
+    powUS(scratch.currencyGain, abyssRunPurificationPowerHandle());
+    return scratch.currencyGain;
 }
 
 // Above ×350,000 total effect, exponent x follows threshold * (x / threshold)^0.5.
@@ -293,15 +313,34 @@ export function buyMaxTierOne(index: i32): bool {
         log10Into(scratch.tierOneProduction, scratch.tierOneProduction);
         divUS(scratch.tierOneProduction, scratch.tierOneCostAcceleration);
         floorInto(scratch.tierOneExponent, scratch.tierOneProduction);
+        if (!gt(scratch.tierOneExponent, 0)) writeNumber(scratch.tierOneExponent, 1);
+
+        writeNumber(scratch.crystal13CostBoostTotal, exponentialCostStartPurchases());
+        subUS(scratch.crystal13CostBoostTotal, tierOneBoughtHandle(index));
+        if (gt(scratch.tierOneExponent, scratch.crystal13CostBoostTotal)) {
+            copyInto(scratch.tierOneExponent, scratch.crystal13CostBoostTotal);
+        }
 
         calculateTierOneBulkCost(cost);
+        let corrections: i32 = 0;
         while (!lte(scratch.tierOneProduction, player.mana)) {
+            if (corrections++ >= 64 || !isFiniteDecimal(scratch.tierOneExponent) || !gt(scratch.tierOneExponent, 0)) return false;
+            const previousLayer = getLayer(scratch.tierOneExponent);
+            const previousMagnitude = getMagnitude(scratch.tierOneExponent);
             subUS(scratch.tierOneExponent, 1);
+            if (getLayer(scratch.tierOneExponent) === previousLayer && getMagnitude(scratch.tierOneExponent) === previousMagnitude) return false;
             calculateTierOneBulkCost(cost);
         }
+        if (!isFiniteDecimal(scratch.tierOneProduction)) return false;
         subUS(player.mana, scratch.tierOneProduction);
         addUS(tierOneAmountHandle(index), scratch.tierOneExponent);
         addUS(tierOneBoughtHandle(index), scratch.tierOneExponent);
+
+        writeNumber(scratch.crystal13CostBoostTotal, exponentialCostStartPurchases());
+        if (gte(tierOneBoughtHandle(index), scratch.crystal13CostBoostTotal)) {
+            refreshTierOneCost(index);
+            if (gte(player.mana, cost)) buyMaxTierOneAccelerated(index);
+        }
     }
 
     unlockTierOneAchievement(index);
@@ -319,20 +358,36 @@ function buyMaxTierOneAccelerated(index: i32): void {
     const boughtHandle = tierOneBoughtHandle(index);
 
     log10Into(scratch.tierOneProduction, player.mana);
+    divUS(scratch.tierOneProduction, abyssRunProducerCostPowerHandle());
+    if (hasCompletedCrystal(13) && index < TIER_ONE_COUNT - 1) {
+        writeNumber(scratch.crystal13CostPower, 0.9);
+        log10Into(scratch.crystal13CostPower, scratch.crystal13CostPower);
+        mulUS(scratch.crystal13CostPower, tierOneBoughtHandle(index + 1));
+        subUS(scratch.tierOneProduction, scratch.crystal13CostPower);
+    }
+    if (isCrossProducerCostCrystalActive()) {
+        crossProducerCostExponent(scratch.crystal13CostBoostTotal, index);
+        subUS(scratch.tierOneProduction, scratch.crystal13CostBoostTotal);
+    }
     computeTierOneBoughtCountForExponent(scratch.tierOneExponent, index, scratch.tierOneProduction);
     floorInto(scratch.tierOneExponent, scratch.tierOneExponent);
-    if (!gte(scratch.tierOneExponent, boughtHandle)) return;
+    if (!gte(scratch.tierOneExponent, boughtHandle)) copyInto(scratch.tierOneExponent, boughtHandle);
 
     computeTierOneCostExponent(scratch.productionModifier, index, scratch.tierOneExponent);
     powInto(scratch.tierOneProduction, 10, scratch.productionModifier);
-    applyCrystalCostModifiers(scratch.tierOneProduction);
+    applyTierOneCostModifiers(scratch.tierOneProduction, index);
+    let corrections: i32 = 0;
     while (gt(scratch.tierOneProduction, player.mana) && gte(scratch.tierOneExponent, boughtHandle)) {
+        if (corrections++ >= 64 || !isFiniteDecimal(scratch.tierOneExponent)) return;
+        const previousLayer = getLayer(scratch.tierOneExponent);
+        const previousMagnitude = getMagnitude(scratch.tierOneExponent);
         subUS(scratch.tierOneExponent, 1);
+        if (getLayer(scratch.tierOneExponent) === previousLayer && getMagnitude(scratch.tierOneExponent) === previousMagnitude) return;
         computeTierOneCostExponent(scratch.productionModifier, index, scratch.tierOneExponent);
         powInto(scratch.tierOneProduction, 10, scratch.productionModifier);
-        applyCrystalCostModifiers(scratch.tierOneProduction);
+        applyTierOneCostModifiers(scratch.tierOneProduction, index);
     }
-    if (!gte(scratch.tierOneExponent, boughtHandle)) return;
+    if (!gte(scratch.tierOneExponent, boughtHandle) || !isFiniteDecimal(scratch.tierOneProduction)) return;
 
     subUS(player.mana, scratch.tierOneProduction);
     addUS(scratch.tierOneExponent, 1);
@@ -380,7 +435,7 @@ export function tierOneAffordabilityProgress(index: i32): f64 {
     const cost = tierOneCostHandle(index);
     if (gte(player.mana, cost)) return 1;
     if (!gt(player.mana, 1)) return 0;
-    const infinityBoundary = <i32>toNumber(player.mana_circle_tier);
+    const infinityBoundary = <i32>getMagnitude(player.mana_circle_tier);
     if (passesLayerBoundary(cost, infinityBoundary)) return 0;
 
     const bought = tierOneBoughtHandle(index);
@@ -410,8 +465,9 @@ export function tierOneAffordabilityProgress(index: i32): f64 {
     subUS(scratch.tierOneProduction, scratch.tierOneExponent);
     subUS(scratch.productionModifier, scratch.tierOneExponent);
     divUS(scratch.tierOneProduction, scratch.productionModifier);
-    const progress = toNumber(scratch.tierOneProduction);
-    return Math.max(0, Math.min(1, progress));
+    if (!gt(scratch.tierOneProduction, 0)) return 0;
+    if (gt(scratch.tierOneProduction, 1)) return 1;
+    return getMagnitude(scratch.tierOneProduction);
 }
 
 export function isTierOneVisible(index: i32): bool {
@@ -487,20 +543,30 @@ function tierOneAmountHandle(index: i32): i32 {
 
 function refreshTierOneCost(index: i32): void {
     computeTierOneCostExponent(scratch.tierOneExponent, index, tierOneBoughtHandle(index));
-    if (isCrossProducerCostCrystalActive()) {
-        writeNumber(scratch.productionModifier, 0);
-        for (let other: i32 = 0; other < TIER_ONE_COUNT; other++) {
-            if (other !== index) addUS(scratch.productionModifier, tierOneBoughtHandle(other));
-        }
-        addUS(scratch.tierOneExponent, scratch.productionModifier);
-    }
     powInto(tierOneCostHandle(index), 10, scratch.tierOneExponent);
+    applyTierOneCostModifiers(tierOneCostHandle(index), index);
+}
+
+function applyTierOneCostModifiers(cost: i32, index: i32): void {
     if (hasCompletedCrystal(13) && index < TIER_ONE_COUNT - 1) {
-        writeNumber(scratch.productionModifier, 0.9);
-        powInto(scratch.tierOneExponent, scratch.productionModifier, tierOneBoughtHandle(index + 1));
-        mulUS(tierOneCostHandle(index), scratch.tierOneExponent);
+        writeNumber(scratch.crystal13CostPower, 0.9);
+        powInto(scratch.crystal13CostPower, scratch.crystal13CostPower, tierOneBoughtHandle(index + 1));
+        mulUS(cost, scratch.crystal13CostPower);
     }
-    applyCrystalCostModifiers(tierOneCostHandle(index));
+    if (isCrossProducerCostCrystalActive()) {
+        crossProducerCostExponent(scratch.crystal13CostBoostTotal, index);
+        powInto(scratch.crystal13CostPower, 10, scratch.crystal13CostBoostTotal);
+        mulUS(cost, scratch.crystal13CostPower);
+    }
+    applyCrystalCostModifiers(cost);
+    powUS(cost, abyssRunProducerCostPowerHandle());
+}
+
+function crossProducerCostExponent(result: i32, index: i32): void {
+    writeNumber(result, 0);
+    for (let other: i32 = 0; other < TIER_ONE_COUNT; other++) {
+        if (other !== index) addUS(result, tierOneBoughtHandle(other));
+    }
 }
 
 // Writes log10(cost(boughtHandle)) into result. Through EXPONENTIAL_COST_START_PURCHASES this is the original linear formula; above it, the closed-form solution of the accelerating recurrence.
@@ -583,6 +649,7 @@ function refreshTierOneMultiplier(index: i32): void {
         if (hasCompletedCrystal(4)) addUS(scratch.productionModifier, crystalRewardHandle(4, 0));
     }
     if (hasCompletedCrystal(11)) addUS(scratch.productionModifier, crystalRewardHandle(11, 0));
+    addUS(scratch.productionModifier, resonancePerBoostBonusHandle());
     powInto(tierOneMultiplierHandle(index), scratch.productionModifier, tierOneBoughtHandle(index));
     if (index < TIER_ONE_COUNT - 1) {
         let empowermentMultiplier: f64 = hasAscendedCondensedEffect(16) ? 250 : hasCondensedEffect(16) ? 50 : 10;
@@ -592,7 +659,7 @@ function refreshTierOneMultiplier(index: i32): void {
         powInto(scratch.tierOneExponent, scratch.productionModifier, tierOneEmpowermentHandle(index));
         mulUS(tierOneMultiplierHandle(index), scratch.tierOneExponent);
     }
-    mulUS(tierOneMultiplierHandle(index), player.purifiedMeridiansMultiplier);
+    mulUS(tierOneMultiplierHandle(index), effectivePurifiedMeridiansMultiplierHandle());
     if (index === 0 && hasCompletedCrystal(3)) {
         mulUS(tierOneMultiplierHandle(index), crystalRewardHandle(3, 0));
     }

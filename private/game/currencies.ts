@@ -7,12 +7,12 @@ import {
     getLayer,
     getMagnitude,
     getSign,
+    isFiniteDecimal,
     gt,
     log10Into,
     mulUS,
     reachesLayerBoundary,
     subUS,
-    toNumber,
     writeDecimal,
     writeNumber,
 } from "../core/break_eternity.js";
@@ -25,6 +25,7 @@ import { equipmentManaProductionMultiplier } from "../guild/equipment.js";
 import type { Player } from "../core/player.js";
 import type { Scratch } from "../core/scratch.js";
 import { remembrance_manaGainModifiers } from "./remembrance.js";
+import { applyAbyssProductionEffect, isAbyssRunActive } from "../abyss/abyss.js";
 
 declare const player: Player;
 declare const scratch: Scratch;
@@ -66,6 +67,11 @@ export function getIncType(): i32 {
 
 export function gainCurrency(currency: i32, amount: i32): void {
     gainCurrencyInternal(currency, amount, false);
+}
+
+export function clearProductionRates(): void {
+    writeNumber(scratch.manaPerSecond, 0);
+    writeNumber(scratch.oomPerSecond, 0);
 }
 
 export function gainProductionCurrency(currency: i32, amount: i32): void {
@@ -133,14 +139,22 @@ export function applyManaGainModifiers(amount: i32): void {
     }
     applyCrystalManaGainModifiers(amount);
     remembrance_manaGainModifiers(amount);
+    applyAbyssProductionBeforeMeditation(amount);
+}
+
+function applyAbyssProductionBeforeMeditation(amount: i32): void {
+    if (!isAbyssRunActive()) return;
+    divUS(amount, player.castSpeedMagnitude);
+    applyAbyssProductionEffect(amount);
+    mulUS(amount, player.castSpeedMagnitude);
 }
 
 export function clampManaToInfinityBoundary(): void {
-    clampToBoundary(player.mana, <i32>toNumber(player.mana_circle_tier));
+    clampToBoundary(player.mana, <i32>getMagnitude(player.mana_circle_tier));
 }
 
 export function isAtInfinityBoundary(value: i32): bool {
-    return reachesLayerBoundary(value, <i32>toNumber(player.mana_circle_tier));
+    return reachesLayerBoundary(value, <i32>getMagnitude(player.mana_circle_tier));
 }
 
 export function manaCondenseProgress(): f64 {
@@ -148,15 +162,34 @@ export function manaCondenseProgress(): f64 {
     if (!gt(player.mana, 1)) return 0;
 
     log10Into(scratch.currencyGain, player.mana);
-    return Math.max(0, Math.min(1, toNumber(scratch.currencyGain) / CONDENSE_LOG10_REQUIREMENT));
+    writeNumber(scratch.productionModifier, CONDENSE_LOG10_REQUIREMENT);
+    divUS(scratch.currencyGain, scratch.productionModifier);
+    if (!gt(scratch.currencyGain, 0)) return 0;
+    if (gt(scratch.currencyGain, 1)) return 1;
+    return getMagnitude(scratch.currencyGain);
 }
 
-export function manaGoalProgress(startExponent: f64, endExponent: f64, maximum: f64): f64 {
+export function manaGoalProgress(startExponent: f64, endExponent: f64, maximum: f64, doubleLog: bool): f64 {
     if (endExponent <= startExponent || !gt(player.mana, 1)) return 0;
     log10Into(scratch.currencyGain, player.mana);
-    const exponent = toNumber(scratch.currencyGain);
-    const progress = (exponent - startExponent) / (endExponent - startExponent);
-    return Math.max(0, Math.min(maximum, progress));
+    if (doubleLog) {
+        if (!gt(scratch.currencyGain, 0)) return 0;
+        log10Into(scratch.currencyGain, scratch.currencyGain);
+        writeNumber(scratch.productionModifier, startExponent);
+        if (gt(scratch.productionModifier, 0)) log10Into(scratch.productionModifier, scratch.productionModifier);
+        writeNumber(scratch.tierOneSeconds, endExponent);
+        log10Into(scratch.tierOneSeconds, scratch.tierOneSeconds);
+    } else {
+        writeNumber(scratch.productionModifier, startExponent);
+        writeNumber(scratch.tierOneSeconds, endExponent);
+    }
+    subUS(scratch.currencyGain, scratch.productionModifier);
+    subUS(scratch.tierOneSeconds, scratch.productionModifier);
+    divUS(scratch.currencyGain, scratch.tierOneSeconds);
+    if (!gt(scratch.currencyGain, 0)) return 0;
+    writeNumber(scratch.productionModifier, maximum);
+    if (gt(scratch.currencyGain, scratch.productionModifier)) return maximum;
+    return getSign(scratch.currencyGain) * getMagnitude(scratch.currencyGain);
 }
 
 export function addPlayerTime(amount: i32): void {
@@ -170,6 +203,8 @@ export function addCondenseTime(amount: i32): void {
 }
 
 export function addGameTime(amount: i32): void {
+    if (!isFiniteDecimal(amount) || !gt(amount, 0)) return;
+    if (!isFiniteDecimal(player.statistics_gameTimePlayed) || !isFiniteDecimal(player.statistics_gameTimeThisCondense)) return;
     addUS(player.statistics_gameTimePlayed, amount);
     addUS(player.statistics_gameTimeThisCondense, amount);
     if (player.count_manaConduit === 0

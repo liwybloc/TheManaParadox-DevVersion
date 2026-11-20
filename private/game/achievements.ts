@@ -67,8 +67,20 @@ export const ACHIEVEMENTS = [
     { id: "achievement_remembrance", circle: 2, number: 53, title: "Remembrance", description: "Unlock the Remembrance Upgrade Tree (Memory Milestone 500)"},
     { id: "achievement_buyapath", circle: 2, number: 54, title: "Oh no not min-maxing!", description: "Purchase Remembrance upgrade 3, 4, or 5 (they aren't unique paths, thankfully!)" },
     { id: "achievement_shatter15crystal", circle: 2, number: 48, title: "Into the Abyss", description: "Shatter the first 15 Crystals" },
-    { id: "achievement_loopabyss", circle: 2, number: 49, title: "Déjà vu", description: "Loop the abyss" },
     { id: "achievement_defeatbtier", circle: 2, number: 55, title: "B yourself!", description: "Defeat a B tier enemy"},
+    { id: "achievement_firstresonance", circle: 2, number: 56, title: "A Distant Echo", description: "Unlock the first Resonance Tower." },
+
+    { id: "achievement_depth5000", circle: 2, number: 59, title: "Stick it where the sun don't shine", description: "Complete an Abyss run at 5,000 m or deeper." },
+    { id: "achievement_allresonance", circle: 2, number: 57, title: "Ninefold resonance", description: "Unlock the ninth Resonance Tower." },
+    { id: "achievement_timebreak", circle: 2, number: 61, title: "Time Break", description: "Break the flow of time." },
+    { id: "achievement_loopabyss", circle: 2, number: 49, title: "Déjà vu", description: "Loop the abyss" },
+    { id: "achievement_depth10000", circle: 2, number: 60, title: "Crushing Infinity", description: "Complete an Abyss run at 10,000 m or deeper." },
+
+    { id: "achievement_notehint", circle: 2, number: 64, title: "Get A Hint", description: "Find the note left for you..." },
+    { id: "achievement_findtheman", circle: 2, number: 65, title: "The man with a plan", description: "Find the man." },
+    { id: "achievement_clockrepaired", circle: 2, number: 62, title: "Picking Up the Pieces", description: "Repair the broken clock and restore the flow of time." },
+    { id: "achievement_drainrealtime", circle: 2, number: 63, title: "An Hour in Hand", description: "Drain a total of 3,600 seconds of Real Time." },
+    { id: "achievement_fullsonic", circle: 2, number: 58, title: "Perfect Pitch", description: "Reach 1.000000 Sonic Value." },
 ];
 
 export const PROGRESSION_ACHIEVEMENT_ORDER = [
@@ -81,7 +93,9 @@ export const PROGRESSION_ACHIEVEMENT_ORDER = [
 
     25, 30, 40, 43, 44,
     45, 46, 47, 51, 53, 
-    54, 50, 48, 49, 55,
+    54, 50, 55, 48, 56,
+    59, 57, 61, 62, 63,
+    49, 64, 65, 60, 58,
 ];
 
 declare const player: Player;
@@ -90,7 +104,7 @@ declare const scratch: Scratch;
 /** [WASM] */
 
 const TIER_ONE_ACHIEVEMENT_COUNT: i32 = 5;
-const ACHIEVEMENT_COUNT: i32 = 55;
+const ACHIEVEMENT_COUNT: i32 = 65;
 const unlockedAchievements = new StaticArray<u8>(ACHIEVEMENT_COUNT);
 let tierOneRewardsChanged = false;
 let circularHabitsRewardPending = false;

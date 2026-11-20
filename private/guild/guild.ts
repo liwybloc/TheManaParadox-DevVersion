@@ -1,4 +1,6 @@
-import { addUS, copyInto, createDecimal, createZero, divUS, gt, gte, log10Into, lte, mulUS, powUS, subUS, toNumber, writeDecimal, writeNumber } from "../core/break_eternity.js";
+import { refreshCourageMultiplier } from "../game/courage.js";
+import { applyTimeUpgradePower, timeUpgradeMultiplierHandle, isGameTimeStopped } from "../game/time.js";
+import { addUS, copyInto, createDecimal, createZero, divUS, getMagnitude, getSign, gt, gte, log10Into, lte, mulUS, powUS, subUS, writeDecimal, writeNumber } from "../core/break_eternity.js";
 import { checkCoinAchievements, consumeCircularHabitsReward, hasTierOneAchievement, unlockTierOneAchievement } from "../game/achievements.js";
 import { crystalRewardHandle, hasCompletedCrystal, isAllMultipliersDisabledCrystalActive, isCrystalActive, isPotionDisabledCrystalActive, isProducerOnlyCrystalActive } from "../game/crystals.js";
 import { focusGameSpeedMultiplier, isFocusing } from "../game/memories.js";
@@ -9,6 +11,8 @@ import { GUILD_QUESTS } from "./quests.js";
 import { GUILD_SHOP_UPGRADES } from "./shop.js";
 import { equipmentBattleDamageMultiplier, equipmentDamageTakenMultiplier, equipmentGameSpeedMultiplier, equipmentMaximumShieldMultiplier, equippedItem, hasMireguardSetBonus, setEquippedItem } from "./equipment.js";
 import { refreshMatrixDerivedState } from "../game/progression.js";
+import "../abyss/handles.js";
+import { abyssGameSpeedDivisorHandle, abyssPotionPowerMultiplierHandle, resonanceTowerEffectHandle } from "../abyss/abyss.js";
 
 type Num10 = [number, number, number, number, number, number, number, number, number, number];
 type Num3 = [number, number, number];
@@ -158,19 +162,19 @@ export function configureGuildRankExperienceRequirement(rank: i32, requirement: 
 }
 
 export function guildExperienceRequirement(): f64 {
-    const rank = <i32>toNumber(player.guildRank);
+    const rank = <i32>getMagnitude(player.guildRank);
     return rank >= 0 && rank < guildRankExperienceRequirementCount
         ? guildRankExperienceRequirements[rank]
         : Infinity;
 }
 
 export function cantRankUp(): bool {
-    const rank = <i32>toNumber(player.guildRank);
-    return rank === 4 || (rank === 0 && toNumber(player.mana_circle_tier) <= 0);
+    const rank = <i32>getMagnitude(player.guildRank);
+    return rank === 4 || (rank === 0 && !gt(player.mana_circle_tier, 0));
 }
 
 export function isQuestActive(): bool {
-    return toNumber(player.activeQuest) >= 0;
+    return getSign(player.activeQuest) >= 0;
 }
 
 export function isQuestSlotLocked(index: i32): bool {
@@ -210,7 +214,7 @@ export function updateQuestBoard(deltaSeconds: f64): void {
 }
 
 export function activeQuestIndex(): i32 {
-    return <i32>toNumber(player.activeQuest);
+    return <i32>(getSign(player.activeQuest) * getMagnitude(player.activeQuest));
 }
 
 export function hasGuildShopUpgrade(index: i32): bool {
@@ -274,7 +278,7 @@ export function buyShopItem(slot: i32): bool {
 
 export function canBuyGuildShopUpgrade(index: i32): bool {
     if (index < 0 || index >= SHOP_UPGRADE_COUNT || hasGuildShopUpgrade(index)) return false;
-    if (<i32>toNumber(player.guildRank) < guildShopUpgradeRank(index)) return false;
+    if (<i32>getMagnitude(player.guildRank) < guildShopUpgradeRank(index)) return false;
     writeNumber(scratch.productionModifier, guildShopUpgradeCost(index));
     return gte(player.coins, scratch.productionModifier);
 }
@@ -332,7 +336,9 @@ export function combatShieldHandle(): i32 {
 export function wolfineHealthPercent(): f64 {
     copyInto(scratch.currencyGain, player.enemyHealth);
     divUS(scratch.currencyGain, enemyMaximumHealth(activeQuestIndex()));
-    return Math.max(0, Math.min(1, toNumber(scratch.currencyGain)));
+    if (!gt(scratch.currencyGain, 0)) return 0;
+    if (gt(scratch.currencyGain, 1)) return 1;
+    return getMagnitude(scratch.currencyGain);
 }
 
 export function enemyMaximumHealth(questSlot: i32): i32 {
@@ -354,7 +360,9 @@ export function combatShieldPercent(): f64 {
     writeNumber(scratch.currencyGain, 0);
     addUS(scratch.currencyGain, player.combatShield);
     divUS(scratch.currencyGain, player.combatShieldMaximum);
-    return Math.max(0, Math.min(1, toNumber(scratch.currencyGain)));
+    if (!gt(scratch.currencyGain, 0)) return 0;
+    if (gt(scratch.currencyGain, 1)) return 1;
+    return getMagnitude(scratch.currencyGain);
 }
 
 export function canCastCombatSpell(index: i32): bool {
@@ -603,8 +611,8 @@ function availablePotionEffectSlots(itemId: i32): i32 {
 export function applyPotionEffect(itemId: i32): bool {
     if (isPotionDisabledCrystalActive()) return false;
     const duration = potionDuration(itemId);
-    const effect = potionEffect(itemId);
-    return duration > 0 && effect > 0 && applyTimedPotionEffect(itemId, duration, effect);
+    const effect = potionEffectHandle(itemId);
+    return duration > 0 && gt(effect, 0) && applyTimedPotionEffect(itemId, duration, effect);
 }
 
 export function potionDuration(itemId: i32): i32 {
@@ -616,7 +624,7 @@ export function potionDuration(itemId: i32): i32 {
     return duration;
 }
 
-export function potionEffect(itemId: i32): f64 {
+export function potionEffectHandle(itemId: i32): i32 {
     const baseEffect: f64 = itemId === INVENTORY_POTION_OF_SPEED ? 4
         : itemId === INVENTORY_POTION_OF_SPEED_II ? 14
         : itemId === INVENTORY_POTION_OF_SPEED_III ? 63 : 0;
@@ -658,12 +666,20 @@ export function refreshPotionEffectState(): void {
     }
 }
 
-function potionSpeedEffect(baseEffect: f64): f64 {
-    let effect = baseEffect;
-    if (hasTierOneAchievement(30)) effect *= 1.25;
-    if (hasGuildShopUpgrade(3)) effect *= 1.5;
-    if (isCrystalActive() && hasCompletedCrystal(6)) effect *= toNumber(crystalRewardHandle(6, 0));
-    return effect;
+function potionSpeedEffect(baseEffect: f64): i32 {
+    writeNumber(scratch.productionModifier, baseEffect);
+    if (hasTierOneAchievement(30)) {
+        writeNumber(scratch.tierOneSeconds, 1.25);
+        mulUS(scratch.productionModifier, scratch.tierOneSeconds);
+    }
+    if (hasGuildShopUpgrade(3)) {
+        writeNumber(scratch.tierOneSeconds, 1.5);
+        mulUS(scratch.productionModifier, scratch.tierOneSeconds);
+    }
+    if (isCrystalActive() && hasCompletedCrystal(6)) mulUS(scratch.productionModifier, crystalRewardHandle(6, 0));
+    mulUS(scratch.productionModifier, resonanceTowerEffectHandle(0, 2));
+    mulUS(scratch.productionModifier, abyssPotionPowerMultiplierHandle());
+    return scratch.productionModifier;
 }
 
 export function updatePotionEffects(seconds: i32): void {
@@ -672,7 +688,7 @@ export function updatePotionEffects(seconds: i32): void {
     updateTimedPotionEffects(INVENTORY_POTION_OF_SPEED_III, seconds);
 }
 
-function applyTimedPotionEffect(itemId: i32, duration: i32, speed: f64): bool {
+function applyTimedPotionEffect(itemId: i32, duration: i32, speed: i32): bool {
     for (let index: i32 = 0; index < 10; index++) {
         const timer = potionTimer(itemId, index);
         if (gt(timer, 0)) continue;
@@ -683,19 +699,17 @@ function applyTimedPotionEffect(itemId: i32, duration: i32, speed: f64): bool {
     return false;
 }
 
-function clearTimedPotionEffect(itemId: i32, effectIndex: i32, speed: f64): bool {
+function clearTimedPotionEffect(itemId: i32, effectIndex: i32, speed: i32): bool {
     if (effectIndex < 0 || effectIndex >= 10) return false;
     const timer = potionTimer(itemId, effectIndex);
     if (!gt(timer, 0)) return false;
     writeNumber(timer, 0);
-    writeNumber(scratch.productionModifier, speed);
-    subUS(scratch.gameSpeed, scratch.productionModifier);
+    subUS(scratch.gameSpeed, speed);
     return true;
 }
 
-function addPotionSpeed(speed: f64): void {
-    writeNumber(scratch.productionModifier, speed);
-    addUS(scratch.gameSpeed, scratch.productionModifier);
+function addPotionSpeed(speed: i32): void {
+    addUS(scratch.gameSpeed, speed);
 }
 
 function updateTimedPotionEffects(itemId: i32, seconds: i32): void {
@@ -714,15 +728,30 @@ function potionTimer(itemId: i32, index: i32): i32 {
 }
 
 export function getGameSpeed(): i32 {
+    if (isGameTimeStopped()) {
+        writeNumber(scratch.effectiveGameSpeed, 0);
+        return scratch.effectiveGameSpeed;
+    }
+    return getUnstoppedGameSpeed();
+}
+
+export function getUnstoppedGameSpeed(): i32 {
     if (isProducerOnlyCrystalActive() || isAllMultipliersDisabledCrystalActive()) {
-        writeNumber(scratch.effectiveGameSpeed, 1);
+        copyInto(scratch.effectiveGameSpeed, timeUpgradeMultiplierHandle(1));
+        applyTimeUpgradePower(scratch.effectiveGameSpeed, 1);
         return scratch.effectiveGameSpeed;
     }
     copyInto(scratch.effectiveGameSpeed, scratch.gameSpeed);
     writeNumber(scratch.productionModifier, equipmentGameSpeedMultiplier());
     mulUS(scratch.effectiveGameSpeed, scratch.productionModifier);
-    if (gt(player.courageTimer, 0)) mulUS(scratch.effectiveGameSpeed, player.courageMultiplier);
+    if (gt(player.courageTimer, 0)) {
+        refreshCourageMultiplier();
+        mulUS(scratch.effectiveGameSpeed, player.courageMultiplier);
+    }
     if (isFocusing()) mulUS(scratch.effectiveGameSpeed, focusGameSpeedMultiplier());
+    divUS(scratch.effectiveGameSpeed, abyssGameSpeedDivisorHandle());
+    mulUS(scratch.effectiveGameSpeed, timeUpgradeMultiplierHandle(1));
+    applyTimeUpgradePower(scratch.effectiveGameSpeed, 1);
     return scratch.effectiveGameSpeed;
 }
 
@@ -806,8 +835,8 @@ export function ensureInventoryPlacements(): void {
         }
     }
     if (wolfFur === 0 && potions === 0) {
-        const legacyWolfFur = <i32>Math.min(100, toNumber(player.inventoryWolfFur));
-        const legacyPotions = <i32>Math.min(100, toNumber(player.inventoryPotionOfSpeed));
+        const legacyWolfFur = <i32>Math.min(100, getMagnitude(player.inventoryWolfFur));
+        const legacyPotions = <i32>Math.min(100, getMagnitude(player.inventoryPotionOfSpeed));
         wolfFur = placeInventoryItems(INVENTORY_WOLF_FUR, legacyWolfFur);
         potions = placeInventoryItems(INVENTORY_POTION_OF_SPEED, legacyPotions);
     }
@@ -931,7 +960,7 @@ function finishQuest(victory: bool): void {
         lastPotionDropped = rewardDroppedForItem(INVENTORY_POTION_OF_SPEED);
         questResultPending = true;
         addUS(player.statistics_questsCompleted, 1);
-        const currentRank = <i32>toNumber(player.guildRank);
+        const currentRank = <i32>getMagnitude(player.guildRank);
         addGuildExperience(questRank(completedSlot), currentRank);
         const requirement = guildExperienceRequirement();
         if (cantRankUp()) {
@@ -983,7 +1012,7 @@ function resetGuildExperienceByQuestRank(): void {
 }
 
 function refreshQuestDefinitions(): void {
-    const rank = <i32>toNumber(player.guildRank);
+    const rank = <i32>getMagnitude(player.guildRank);
     const minimumId = minimumQuestDefinitionId(rank);
     const maximumId = maximumQuestDefinitionId(rank);
     for (let slot: i32 = 0; slot < QUEST_SLOT_COUNT; slot++) {
@@ -995,7 +1024,7 @@ function refreshQuestDefinitions(): void {
 }
 
 function questDefinitionsMatchCurrentRank(): bool {
-    const rank = <i32>toNumber(player.guildRank);
+    const rank = <i32>getMagnitude(player.guildRank);
     const minimumId = minimumQuestDefinitionId(rank);
     const maximumId = maximumQuestDefinitionId(rank);
     for (let slot: i32 = 0; slot < QUEST_SLOT_COUNT; slot++) {

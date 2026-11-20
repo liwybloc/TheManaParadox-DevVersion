@@ -11,6 +11,7 @@ export function formatDecimals(
     handles: readonly number[],
     decimals: number | readonly number[] = 2,
     boundaryLabel: string | readonly string[] = "Unknown",
+    respectBoundary = true,
 ): string[] {
     if (handles.length === 0) return [];
     const transfer = getDecimalFormatTransfer();
@@ -25,7 +26,7 @@ export function formatDecimals(
             transfer[component],
             transfer[component + 1],
             transfer[component + 2],
-            transfer[component + 3] !== 0,
+            respectBoundary && transfer[component + 3] !== 0,
             typeof decimals === "number" ? decimals : decimals[index],
             typeof boundaryLabel === "string" ? boundaryLabel : boundaryLabel[index],
         );
@@ -34,6 +35,18 @@ export function formatDecimals(
 
 export function formatDecimalCompact(handle: number): string {
     return formatDecimalsCompact([handle])[0];
+}
+
+export function formatNumber(value: number, decimals = 2): string {
+    if (!Number.isFinite(value)) return "Unknown";
+    if (Math.abs(value) >= 1e9) return value.toExponential(decimals).replace("+", "");
+    return formatFixedNumber(value, decimals);
+}
+
+function formatFixedNumber(value: number, decimals: number): string {
+    const [integer, fraction] = value.toFixed(decimals).split(".");
+    const groupedInteger = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return fraction === undefined ? groupedInteger : `${groupedInteger}.${fraction}`;
 }
 
 export function formatDecimalsCompact(handles: readonly number[]): string[] {
@@ -102,7 +115,7 @@ function formatDecimalComponents(
     if (layer === 0) {
         const value = sign * magnitude;
         if (Math.abs(value) >= 1e9) return value.toExponential(2).replace("+", "");
-        return value.toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+        return formatFixedNumber(value, decimals);
     }
     const exponent = Math.floor(magnitude);
     const mantissa = Math.pow(10, magnitude - exponent);

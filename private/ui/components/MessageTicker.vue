@@ -9,7 +9,8 @@ import {
 import { MESSAGE_TICKERS, recordMessageTicker } from '@game/game/message_tickers.js';
 
 const props = defineProps({
-    particles: { type: Boolean, required: true }
+    particles: { type: Boolean, required: true },
+    paused: { type: Boolean, default: false }
 });
 const emit = defineEmits(['message-displayed']);
 
@@ -47,6 +48,23 @@ function getRandomMessageIndex() {
 let messageIndex = getRandomMessageIndex();
 const message = ref(MESSAGE_TICKERS[messageIndex]);
 let timer;
+let messageDue = 0;
+let messageRemaining = 0;
+let pausedAt = 0;
+let particlePauseDuration = 0;
+watch(() => props.paused, (paused) => {
+    if (paused) {
+        pausedAt = performance.now();
+        messageRemaining = Math.max(0, messageDue - pausedAt);
+        clearTimeout(timer);
+    } else {
+        const duration = performance.now() - pausedAt;
+        startTime += duration;
+        particlePauseDuration += duration;
+        messageDue = performance.now() + messageRemaining;
+        timer = setTimeout(nextMessage, messageRemaining);
+    }
+});
 
 function recordDisplayedMessage() {
     const statistics = recordMessageTicker(messageIndex);
@@ -65,7 +83,10 @@ function nextMessage() {
 }
 
 function beginNextMessage() {
-    timer = setTimeout(nextMessage, getMessageDuration())
+    messageRemaining = getMessageDuration();
+    messageDue = performance.now() + messageRemaining;
+    if (props.paused) { pausedAt = performance.now(); return; }
+    timer = setTimeout(nextMessage, messageRemaining);
 }
 
 onMounted(() => {
@@ -165,7 +186,7 @@ function animate(time) {
         return;
     }
     animationFrame = requestAnimationFrame(animate);
-    if (document.hidden || time - previousParticleFrame < PARTICLE_FRAME_INTERVAL) return;
+    if (props.paused || document.hidden || time - previousParticleFrame < PARTICLE_FRAME_INTERVAL) return;
     previousParticleFrame = time;
     const width = canvasWidth;
     const height = canvasHeight;
@@ -188,8 +209,8 @@ function animate(time) {
         } else if (localTime < config.assembleTime + holdTime) {
             x = particle.targetX;
             y = particle.targetY;
-            x += Math.sin(time * 0.003 + particle.targetY * 0.15) * 0.25;
-            y += Math.cos(time * 0.002 + particle.targetX * 0.15) * 0.25;
+            x += Math.sin((time - particlePauseDuration) * 0.003 + particle.targetY * 0.15) * 0.25;
+            y += Math.cos((time - particlePauseDuration) * 0.002 + particle.targetX * 0.15) * 0.25;
         } else {
             const scatterStart = config.assembleTime + holdTime;
             const progress = Math.min(
@@ -257,7 +278,7 @@ watch(
             v-else
             :key="message"
             class="mana-message-text"
-            :style="{ '--message-duration': `${getMessageDuration()}ms` }"
+            :style="{ '--message-duration': `${getMessageDuration()}ms`, animationPlayState: paused ? 'paused' : 'running' }"
         >{{ message }}</div>
     </div>
 </template>

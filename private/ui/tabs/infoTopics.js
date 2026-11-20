@@ -107,7 +107,7 @@ export const topics = [
         summary: "Slow the game for a chance at permanent milestones.",
         paragraphs: [
             "Completing Crystal 3 unlocks Memories. Turn on Focus before Condensing for a chance to remember something. Focus cannot be started during a Crystal.",
-            "Your chance is 1 / (memories + 1) + log10(condensed mana gained + 1) / 50, capped at 100%. A successful focused Condense adds one Memory.",
+            "Your chance is 1 / (memories + 1) + log10(condensed mana gained + 1) / 50, capped at 100%. A successful focused Condense adds one Memory. When the chance before pity is above 5%, failures build a saved pity bar. Its logarithmic progress slows with each failure, reaching a 99% chance at 100 failures; success resets it.",
             "Focus slows the game more as mana rises. Its speed multiplier is 100^(-0.5 - max(0, (log10(mana) - 1) / 25)). At 10 Memories, the base becomes 95 and the slowdown is slightly weaker.",
             "Milestones begin at 1, 3, 5, 10, and 25 Memories. They improve Condensed Mana, Courage, mana production, Focus, and later Guild progression.",
         ],

@@ -1,8 +1,9 @@
-import { gt, lte, mulUS, multiplyInto, subUS, writeNumber } from "../core/break_eternity.js";
+import { timeUpgradeMultiplierHandle, accumulateDrainedTime, isGameTimeStopped, isWorldTimeStopped, getTimeDrainMode } from "../game/time.js";
+import { isFiniteDecimal, gt, lte, mulUS, multiplyInto, subUS, writeNumber } from "../core/break_eternity.js";
 import { consumeTierOneRewardsChanged } from "../game/achievements.js";
 import { updateCourage } from "../game/courage.js";
-import { addCondenseTime, addGameTime, addPlayerTime, gainProductionCurrency, updateHighestManaReached } from "../game/currencies.js";
-import { getGameSpeed, isQuestActive, updatePotionEffects, updateQuestBoard } from "../guild/guild.js";
+import { addCondenseTime, addGameTime, addPlayerTime, clearProductionRates, gainProductionCurrency, updateHighestManaReached } from "../game/currencies.js";
+import { getUnstoppedGameSpeed, getGameSpeed, isQuestActive, updatePotionEffects, updateQuestBoard } from "../guild/guild.js";
 import { HANDLES } from "../core/player.js";
 import { refreshMatrixDerivedState, refreshSealedMeridiansDerivedState, resetCastSpeed } from "../game/progression.js";
 import { SCRATCH_HANDLES } from "../core/scratch.js";
@@ -10,7 +11,8 @@ import { applyCrystal11ManaAbsorberReward, refreshTierOneDerivedState, synchroni
 import { isAllProducersManaAbsorbersCrystalActive, isCrystalActive } from "../game/crystals.js";
 import { PerformanceStats } from "./performance-stats.js";
 import { tickKeybinds } from "./keybinds.js";
-import { updateAutocasters } from "../guild/autocasters.js";
+import { updateAutocasters, updateCourageAutocasters } from "../guild/autocasters.js";
+import { tickAbyssRunTime } from "../abyss/abyss.js";
 
 /** [WASM] */
 
@@ -148,16 +150,22 @@ function tickProduction(deltaMilliseconds: f64, countTimePlayed: bool): void {
     if (countTimePlayed) addPlayerTime(secondsHandle);
     else addCondenseTime(secondsHandle);
     updateCourage(secondsHandle);
-    multiplyInto(modifierHandle, secondsHandle, getGameSpeed());
+    const gameSpeed = getGameSpeed();
+    if (!isFiniteDecimal(gameSpeed)) {
+        clearProductionRates();
+        return;
+    }
+    multiplyInto(modifierHandle, secondsHandle, gameSpeed);
     addGameTime(modifierHandle);
     applyCastSpeed();
-    mulUS(secondsHandle, getGameSpeed());
+    mulUS(secondsHandle, gameSpeed);
     for (let entity: i32 = 0; entity < productionEntityCount; entity++) {
         if (isQuestActive() && entityDestinationHandle[entity] === manaCurrencyHandle) continue;
         multiplyInto(productionHandle, entityAmountHandle[entity], secondsHandle);
         mulUS(mulUS(productionHandle, entityBaseProductionHandle[entity]), entityBaseMultiplierHandle[entity]);
         writeNumber(modifierHandle, productionMultiplierFor(entity) * speedMultiplierFor(entity));
         mulUS(productionHandle, modifierHandle);
+        mulUS(productionHandle, timeUpgradeMultiplierHandle(0));
         const destination = isAllProducersManaAbsorbersCrystalActive() && entity < productionEntityCount - 1
             ? manaAbsorberCurrencyHandle
             : entityDestinationHandle[entity];
@@ -252,13 +260,29 @@ function calculateModifier(scope: i32, target: i32, type: i32): f64 {
     return result;
 }
 
-export function tick(deltaMilliseconds: f64, countTimePlayed: bool): void {
+export function tick(deltaMilliseconds: f64, countTimePlayed: bool, chargeAutocasterWages: bool): void {
     if (!(deltaMilliseconds > 0) || !isFinite(deltaMilliseconds)) return;
+    if (isGameTimeStopped()) {
+        clearProductionRates();
+        if (getTimeDrainMode() === 2 && !isWorldTimeStopped()) {
+            writeNumber(secondsHandle, deltaMilliseconds / 1000);
+            if (countTimePlayed) addPlayerTime(secondsHandle);
+            updatePotionEffects(secondsHandle);
+            updateCourage(secondsHandle);
+            updateCourageAutocasters(deltaMilliseconds / 1000, chargeAutocasterWages);
+        }
+        if (getTimeDrainMode() > 0) {
+            const speed = getUnstoppedGameSpeed();
+            accumulateDrainedTime(deltaMilliseconds / 1000, speed);
+        }
+        return;
+    }
+    tickAbyssRunTime(deltaMilliseconds / 1000);
     if (isAllProducersManaAbsorbersCrystalActive()) synchronizeCrystal11Multipliers();
     writeNumber(secondsHandle, deltaMilliseconds / 1000);
     updatePotionEffects(secondsHandle);
     updateQuestBoard(deltaMilliseconds / 1000);
-    updateAutocasters(deltaMilliseconds / 1000);
+    updateAutocasters(deltaMilliseconds / 1000, chargeAutocasterWages);
     tickProduction(deltaMilliseconds, countTimePlayed);
     if (!isCrystalActive()) updateHighestManaReached();
     if (consumeTierOneRewardsChanged()) {
@@ -274,7 +298,7 @@ export function simulateTicks(durationMilliseconds: f64, stepMilliseconds: f64, 
     let remainingMilliseconds = durationMilliseconds;
     while (remainingMilliseconds > 0) {
         const tickMilliseconds = Math.min(stepMilliseconds, remainingMilliseconds);
-        tick(tickMilliseconds, countTimePlayed);
+        tick(tickMilliseconds, countTimePlayed, false);
         remainingMilliseconds -= tickMilliseconds;
     }
 }
@@ -339,6 +363,8 @@ setUpdateRate(updateRate);
 let offlineProgress = loadOfflineProgress();
 
 const BASE_SIMULATION_BATCH_SIZE = 500;
+const SIMULATION_CHUNK_TICKS = 8;
+const SIMULATION_FRAME_MILLISECONDS = 8;
 const simulationListeners = new Set<(state: TimeSimulationState) => void>();
 let simulationActive = false;
 let simulationStepMilliseconds = DEFAULT_UPDATE_RATE;
@@ -387,38 +413,46 @@ export function subscribeToTimeSimulation(listener: (state: TimeSimulationState)
     return () => simulationListeners.delete(listener);
 }
 
+export function simulateClockTime(seconds: number): boolean {
+    if (simulationActive || isGameTimeStopped() || !Number.isFinite(seconds) || seconds <= 0) return false;
+    const stepMilliseconds = seconds * 1000 / 5;
+    for (let index = 0; index < 5; index++) tick(stepMilliseconds, false, false);
+    return true;
+}
+
 export async function simulateTime(seconds: number, countTimePlayed = true): Promise<void> {
     if (!offlineProgress || simulationActive) return;
     const finiteSeconds = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
     if (finiteSeconds === 0) return;
+    if (isGameTimeStopped()) {
+        tick(finiteSeconds * 1000, false, false);
+        return;
+    }
 
     simulationActive = true;
     simulationStepMilliseconds = updateRate;
     simulationSkipRequested = false;
     simulationTotalMilliseconds = finiteSeconds * 1000;
     simulationCompletedMilliseconds = 0;
-    notifySimulationListeners();
 
     try {
+        if (!Number.isFinite(simulationTotalMilliseconds)) throw new RangeError("Simulation duration is too large");
+        notifySimulationListeners();
         while (simulationCompletedMilliseconds < simulationTotalMilliseconds) {
             const remainingMilliseconds = simulationTotalMilliseconds - simulationCompletedMilliseconds;
             if (simulationSkipRequested) {
-                simulateTicks(
-                    remainingMilliseconds,
-                    Math.max(simulationStepMilliseconds, remainingMilliseconds / 100),
-                    countTimePlayed,
-                );
-                simulationCompletedMilliseconds = simulationTotalMilliseconds;
-                notifySimulationListeners();
-                break;
+                simulationStepMilliseconds = Math.max(simulationStepMilliseconds, remainingMilliseconds / 100);
+                simulationSkipRequested = false;
             }
-
-            const batchMilliseconds = Math.min(
-                remainingMilliseconds,
-                BASE_SIMULATION_BATCH_SIZE * simulationStepMilliseconds,
-            );
-            simulateTicks(batchMilliseconds, simulationStepMilliseconds, countTimePlayed);
-            simulationCompletedMilliseconds += batchMilliseconds;
+            const batchMilliseconds = Math.min(remainingMilliseconds, BASE_SIMULATION_BATCH_SIZE * simulationStepMilliseconds);
+            const deadline = performance.now() + SIMULATION_FRAME_MILLISECONDS;
+            let batchCompleted = 0;
+            do {
+                const chunkMilliseconds = Math.min(batchMilliseconds - batchCompleted, SIMULATION_CHUNK_TICKS * simulationStepMilliseconds);
+                simulateTicks(chunkMilliseconds, simulationStepMilliseconds, countTimePlayed);
+                batchCompleted += chunkMilliseconds;
+                simulationCompletedMilliseconds += chunkMilliseconds;
+            } while (batchCompleted < batchMilliseconds && performance.now() < deadline);
             notifySimulationListeners();
             await new Promise((resolve) => setTimeout(resolve, 0));
         }
@@ -430,7 +464,7 @@ export async function simulateTime(seconds: number, countTimePlayed = true): Pro
 
 export function speedUpTimeSimulation(): void {
     if (!simulationActive) return;
-    simulationStepMilliseconds *= 2;
+    simulationStepMilliseconds = Math.min(simulationTotalMilliseconds, simulationStepMilliseconds * 2);
     notifySimulationListeners();
 }
 
@@ -489,7 +523,7 @@ function runTick(): void {
         if (elapsedMilliseconds > 10_000) {
             if (offlineProgress) void simulateTime(elapsedMilliseconds / 1000, true);
         } else {
-            tick(elapsedMilliseconds, true);
+            tick(elapsedMilliseconds, true, true);
         }
     }
     tickKeybinds();

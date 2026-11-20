@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { HANDLES } from "@game/core/player.js";
 import { SCRATCH_HANDLES } from "@game/core/scratch.js";
 import { ACHIEVEMENTS } from "@game/game/achievements.js";
@@ -15,25 +15,14 @@ import { INVENTORY_ITEMS_BY_ID, Items, resolveItemDescription } from "@game/guil
 import { GUILD_SHOP_UPGRADES } from "@game/guild/shop.js";
 import { AUTOCASTER_NAMES, AUTOCASTER_TASKS, AUTOCASTER_TIERS, MAX_AUTOCASTERS } from "@game/config/autocasters.js";
 import { AUTOCASTER_HANDLES } from "@game/guild/autocasters.js";
-import { castAll, condense, enterCrystal as enterCrystalAction, escapeCrystal as escapeCrystalAction, focus as focusAction, increaseMatrix as increaseMatrixAction, sealMeridians as sealMeridiansAction, sealedMeridianResetNoGain as sealedMeridianResetNoGainAction, shatterCrystal as shatterCrystalAction, subscribeToCondense, subscribeToMemoryGain } from "@game/systems/actions.js";
+import { beginAbyssRun as beginAbyssRunAction, castAll, condense, enterCrystal as enterCrystalAction, escapeAbyssRun as escapeAbyssRunAction, escapeCrystal as escapeCrystalAction, focus as focusAction, increaseMatrix as increaseMatrixAction, sealMeridians as sealMeridiansAction, sealedMeridianResetNoGain as sealedMeridianResetNoGainAction, shatterCrystal as shatterCrystalAction, subscribeToCondense, subscribeToMemoryGain } from "@game/systems/actions.js";
 import { exportSave, importSave, resetGame as resetGameData, saveGame } from "@game/systems/save.js";
 import { getUpdateRate, isOfflineProgressEnabled, setOfflineProgressEnabled, setUpdateRate, skipTimeSimulation, speedUpTimeSimulation, subscribeToTimeSimulation } from "@game/systems/tick.js";
 import { setAbyssActive, setAbyssVortexActive, setStarManaProgress, setStarsAnimated as applyStarsAnimated, setStarsVisible as applyStarsVisible, starsAnimated as loadStarsAnimated, starsVisible as loadStarsVisible } from "@game/systems/background.js";
 import { formatCompletionTime, formatCrystalGoal, formatDecimal, formatDecimalCompact, formatDecimals } from "@game/ui/formatting.js";
 import { namedWasm } from "@generated/_wasm$globals.js";
-import GameHeader from "./components/GameHeader.vue";
 import GoalProgressBar from "./components/GoalProgressBar.vue";
-import TabNavigation from "./components/TabNavigation.vue";
-import ManaTab from "./tabs/ManaTab.vue";
-import CondensedTab from "./tabs/CondensedTab.vue";
-import ManaCircleTab from "./tabs/ManaCircleTab.vue";
-import CrystalsTab from "./tabs/CrystalsTab.vue";
-import GuildTab from "./tabs/GuildTab.vue";
-import QuestTab from "./tabs/QuestTab.vue";
-import AutocastersTab from "./tabs/AutocastersTab.vue";
-import OptionsTab from "./tabs/OptionsTab.vue";
-import StatisticsTab from "./tabs/StatisticsTab.vue";
-import AchievementsTab from "./tabs/AchievementsTab.vue";
+import BaseGameFrame from "./frames/BaseGameFrame.vue";
 import InfoTab from "./tabs/InfoTab.vue";
 import NotificationStack from "./components/NotificationStack.vue";
 import TimeSimulation from "./components/TimeSimulation.vue";
@@ -42,7 +31,9 @@ import MessageTicker from "./components/MessageTicker.vue";
 import ManaCircleExpansion from "./components/ManaCircleExpansion.vue";
 import { showNotification } from "./notifications.js";
 import { createGlitchPositions, renderGlitchText } from "./textoptions.js";
-import AbyssTab from "./tabs/AbyssTab.vue";
+import ClockDialogue from "./components/ClockDialogue.vue";
+import DepthCrushing from "./components/DepthCrushing.vue";
+import AbyssFrame from "./frames/AbyssFrame.vue";
 
 function tabDefinition(tabId) {
     return TABS.find((tab) => tab.id === tabId);
@@ -65,6 +56,9 @@ if (isValidSubTab(startTab, selectedSubTab)) startingSubtabs[startTab] = selecte
 const activeTab = ref(startTab);
 const activeSubtabs = ref(startingSubtabs);
 const mana = ref("0");
+const sonicValue = ref("0.000000");
+const abyssRunActive = ref(false);
+const canEscapeAbyssRun = ref(false);
 const canCondense = ref(false);
 const condenseManaGained = ref("0");
 const condensedMana = ref("0");
@@ -84,6 +78,17 @@ const activeCrystal = ref(-1);
 const crystalGoalReached = ref(false);
 const crystalCanShatter = ref(false);
 const equipmentUnlocked = ref(false);
+const enteredAbyss = ref(namedWasm.isInAbyss());
+const crushingDepth = ref(false);
+const clockDialogue = ref(false);
+const timeEntrancePending = ref(false);
+const mountainUnlocked = ref(namedWasm.isMountainUnlocked());
+const clockRecovery = ref(namedWasm.getClockRecoveryStage());
+const clockBroken = ref(namedWasm.isClockBroken());
+const worldTimeStopped = ref(namedWasm.isWorldTimeStopped());
+const timeDiscovery = ref(namedWasm.getTimeDiscovery());
+const timeLabel = ref(timeDiscovery.value === 2 ? "Time" : "????");
+const abyssEntryTransition = ref("fade");
 const cantRankUp = ref(false);
 const pingedTabs = ref([]);
 const pingedSubtabs = ref([]);
@@ -253,11 +258,19 @@ const statistics = ref({
     gameTimeThisCondense: "00:00:00",
     fastestCondense: "00:00:00",
     hasCondensed: false,
+    abyssUnlocked: false,
+    sonicValue: "0.000000",
+    highestAbyssDepth: "1,000 m",
+    abyssRunTime: "00:00:00",
+    abyssRunsCompleted: 0,
 });
 
 const memories = ref({
     remembered: 0,
+    limited: false,
     nextChance: "100.00",
+    pityProgress: 0,
+    pityEligible: false,
     focusing: false,
     manaMultiplier: "1.00",
     productionMultiplier: "1.00",
@@ -286,6 +299,7 @@ let navigationUnlocksInitialized = false;
 
 const activeSubtab = computed(() => activeSubtabs.value[activeTab.value]);
 const visibleTabs = computed(() => TABS.filter((tab) => {
+    if (tab.requiresTime && timeDiscovery.value === 0) return false;
     if (tab.requiresCondensed && !condensedUnlocked.value) return false;
     if (tab.requiresGuild && !guildUnlocked.value) return false;
     if (tab.requiresQuest && !questActive.value) return false;
@@ -295,18 +309,21 @@ const visibleTabs = computed(() => TABS.filter((tab) => {
     return true;
 }).map((tab) => ({
     ...tab,
+    label: tab.id === "time" ? timeLabel.value : tab.label,
+    guided: clockBroken.value && ((clockRecovery.value === 0 && tab.id === "abyss") || (clockRecovery.value === 1 && tab.id === "time")),
     subtabs: tab.subtabs?.filter((subtab) =>
         (!subtab.requiresAscensionHall || ascensionHallUnlocked.value)
         && (!subtab.requiresMemory || memoriesUnlocked.value)
         && (!subtab.requiresRemTree || remembranceUnlocked.value)
         && (!subtab.requiresLibrary || libraryUnlocked.value)
-    ),
+        && (!subtab.requiresMountain || mountainUnlocked.value)
+    ).map((subtab) => ({ ...subtab, guided: clockBroken.value && clockRecovery.value === 0 && tab.id === "abyss" && subtab.id === "depths" })),
 })));
 
 watch(
     [activeTab, activeSubtab],
     ([tab, subtab]) => {
-        const abyss = tab === "abyss";
+        const abyss = tab === "abyss" || namedWasm.isAbyssRunActive();
         document.body.classList.toggle("abyss-active", abyss);
         setAbyssActive(abyss);
         setAbyssVortexActive(abyss && subtab === "depths");
@@ -325,7 +342,7 @@ function displayedItemDefinition(itemId) {
         ],
         description: resolveItemDescription(definition.description, {
             duration: namedWasm.potionDuration(itemId),
-            effect: namedWasm.potionEffect(itemId).toFixed(2),
+            effect: formatDecimal(namedWasm.potionEffectHandle(itemId)),
         }),
     };
 }
@@ -348,6 +365,7 @@ function displayedInventoryItemDefinition(itemId, metadata) {
 
 function selectTab(id) {
     if (!isValidTab(id)) return;
+    if (id === "time" && namedWasm.getClockRecoveryStage() === 1 && namedWasm.isClockBroken()) clockDialogue.value = true;
     activeTab.value = id;
     pingedTabs.value = pingedTabs.value.filter((tabId) => tabId !== id);
     localStorage.setItem("selectedTab", id);
@@ -371,6 +389,7 @@ let lastRemembranceGlitchPositionUpdate = 0;
 let remembranceGlitchPositions = createGlitchPositions(15, 3);
 
 function updateRemembranceGlitch(timestamp) {
+    if (worldTimeStopped.value) return;
     if (timestamp - lastRemembranceGlitchRender < 50) return;
     lastRemembranceGlitchRender = timestamp;
     if (timestamp - lastRemembranceGlitchPositionUpdate >= 300) {
@@ -408,7 +427,7 @@ function updateSlowDisplay() {
             updateCondensedDisplay();
             break;
         case "manacircle":
-            manaCircle.value = namedWasm.toNumber(HANDLES.mana_circle_tier);
+            manaCircle.value = namedWasm.getMagnitude(HANDLES.mana_circle_tier);
             break;
         case "guild":
             updateGuildDisplay(activeSubtab.value);
@@ -428,6 +447,9 @@ function updateSlowDisplay() {
 
 function updateDisplay(timestamp) {
     try {
+        const nextEnteredAbyss = namedWasm.isInAbyss();
+        if (nextEnteredAbyss && !enteredAbyss.value) abyssEntryTransition.value = "fade";
+        enteredAbyss.value = nextEnteredAbyss;
         if (showFpsCounter) {
             if (fpsWindowStart === 0) fpsWindowStart = timestamp;
             fpsFrameCount++;
@@ -463,12 +485,25 @@ function updateGlobalDisplay() {
     canCondense.value = namedWasm.canCondense();
     condensedUnlocked.value = namedWasm.hasCondensed();
     if (condensedUnlocked.value) condensedMana.value = formatDecimal(HANDLES.condensedMana, 0);
-    manaCircle.value = namedWasm.toNumber(HANDLES.mana_circle_tier);
+    manaCircle.value = namedWasm.getMagnitude(HANDLES.mana_circle_tier);
     crystalsUnlocked.value = namedWasm.hasAscendedCondensedEffect(19);
     memoriesUnlocked.value = namedWasm.hasCompletedCrystal(2);
     remembranceUnlocked.value = namedWasm.hasMemoryMilestone(500);
     libraryUnlocked.value = namedWasm.hasMemoryMilestone(75);
+    mountainUnlocked.value = namedWasm.isMountainUnlocked();
+    if (!mountainUnlocked.value && activeSubtabs.value.time === "time-mountain") activeSubtabs.value.time = "time-clock";
+    clockRecovery.value = namedWasm.getClockRecoveryStage();
+    clockBroken.value = namedWasm.isClockBroken();
+    worldTimeStopped.value = namedWasm.isWorldTimeStopped();
+    document.body.classList.toggle("world-time-stopped", worldTimeStopped.value);
+    if (activeTab.value === "time" && clockRecovery.value === 1 && clockBroken.value) clockDialogue.value = true;
+    timeDiscovery.value = namedWasm.getTimeDiscovery();
+    if (timeDiscovery.value !== 1) timeLabel.value = timeDiscovery.value === 2 ? "Time" : "????";
     abyssUnlocked.value = namedWasm.hasCompletedCrystal(14);
+    abyssRunActive.value = namedWasm.isAbyssRunActive();
+    if (namedWasm.canDiscoverTime()) crushingDepth.value = true;
+    canEscapeAbyssRun.value = namedWasm.canEscapeAbyssRun();
+    sonicValue.value = formatDecimal(namedWasm.sonicValueLogarithmicHandle(), 6);
     memories.value.focusing = namedWasm.isFocusing();
     if (manaCircle.value > 0 && canCondense.value) {
         namedWasm.refreshCondenseGain();
@@ -607,7 +642,7 @@ function updateAutocastersDisplay() {
 function isProgressionGoalComplete(goal) {
     switch (goal.completion) {
         case "sealed-meridians":
-            return namedWasm.toNumber(HANDLES.sealedMeridians) > 1 || namedWasm.isGuildUnlocked();
+            return namedWasm.gt(HANDLES.sealedMeridians, 1) || namedWasm.isGuildUnlocked();
         case "meridian-purification":
             return namedWasm.gt(HANDLES.purifiedMeridiansMultiplier, 1) || namedWasm.isGuildUnlocked();
         case "guild-member":
@@ -635,6 +670,7 @@ function progressionGoalProgress(goal) {
                 progress.startExponent,
                 progress.endExponent,
                 progress.maximumBeforeCompletion,
+                progress.doubleLog,
             );
         case "condensed-upgrades":
             return countCompleted(CONDENSED_UPGRADES, (_, index) => namedWasm.hasCondensedUpgrade(index)) / progress.target;
@@ -658,13 +694,13 @@ function countCompleted(definitions, predicate) {
 function updateManaDisplay() {
     namedWasm.refreshCrystalProducerCosts();
     const potionSpeedTimers = POTION_SPEED_TIMER_HANDLES
-        .map((handle) => namedWasm.toNumber(handle))
+        .map((handle) => namedWasm.getMagnitude(handle))
         .filter((seconds) => seconds > 0);
     const potionSpeedIITimers = POTION_SPEED_II_TIMER_HANDLES
-        .map((handle) => namedWasm.toNumber(handle))
+        .map((handle) => namedWasm.getMagnitude(handle))
         .filter((seconds) => seconds > 0);
     const potionSpeedIIITimers = POTION_SPEED_III_TIMER_HANDLES
-        .map((handle) => namedWasm.toNumber(handle))
+        .map((handle) => namedWasm.getMagnitude(handle))
         .filter((seconds) => seconds > 0);
     gameSpeed.value = formatGameSpeed(namedWasm.getGameSpeed());
     gameSpeedIncreased.value = namedWasm.isGameSpeedIncreased();
@@ -674,13 +710,13 @@ function updateManaDisplay() {
     showOoMPerSecond.value = namedWasm.getIncType() === 1;
     potionEffects.value = potionSpeedTimers.map((seconds, index) => ({
         id: `speed-${index}`,
-        text: `Potion of Speed: +${namedWasm.potionEffect(Items.POTION_SPEED_I).toFixed(2)}× Game Speed (${formatShortTimer(seconds)})`,
+        text: `Potion of Speed: +${formatDecimal(namedWasm.potionEffectHandle(Items.POTION_SPEED_I))}× Game Speed (${formatShortTimer(seconds)})`,
     })).concat(potionSpeedIITimers.map((seconds, index) => ({
         id: `speed-ii-${index}`,
-        text: `Potion of Speed II: +${namedWasm.potionEffect(Items.POTION_SPEED_II).toFixed(2)}× Game Speed (${formatShortTimer(seconds)})`,
+        text: `Potion of Speed II: +${formatDecimal(namedWasm.potionEffectHandle(Items.POTION_SPEED_II))}× Game Speed (${formatShortTimer(seconds)})`,
     }))).concat(potionSpeedIIITimers.map((seconds, index) => ({
         id: `speed-iii-${index}`,
-        text: `Potion of Speed III: +${namedWasm.potionEffect(Items.POTION_SPEED_III).toFixed(2)}× Game Speed (${formatShortTimer(seconds)})`,
+        text: `Potion of Speed III: +${formatDecimal(namedWasm.potionEffectHandle(Items.POTION_SPEED_III))}× Game Speed (${formatShortTimer(seconds)})`,
     })));
     for (const upgrade of tierOneUpgrades.value) {
         const bought = namedWasm.tierOneBoughtHandle(upgrade.index);
@@ -706,8 +742,9 @@ function updateManaDisplay() {
     castSpeedSpell.value.timer = formatDuration(HANDLES.castSpeedTimer);
     const [castSpeedMagnitude, castSpeedCost] = formatDecimals([HANDLES.castSpeedMagnitude, HANDLES.castSpeedCost]);
     castSpeedSpell.value.magnitude = `×${castSpeedMagnitude}`;
-    castSpeedSpell.value.power = formatDecimalCompact(HANDLES.matrixSpeedPower);
-    castSpeedSpell.value.showPower = !namedWasm.eq(HANDLES.matrixSpeedPower, 2);
+    const meditationPower = namedWasm.meditationPowerHandle();
+    castSpeedSpell.value.power = formatDecimalCompact(meditationPower);
+    castSpeedSpell.value.showPower = !namedWasm.eq(meditationPower, 2);
     castSpeedSpell.value.cost = `${castSpeedCost} mana`;
     castSpeedSpell.value.affordable = namedWasm.canCastSpeed();
     const [sealedMeridianLevel, sealedMeridianEffect, sealedMeridianCost] = formatDecimals([
@@ -732,7 +769,7 @@ function updateManaDisplay() {
     matrix.value.visible = namedWasm.isMatrixVisible();
     courage.value.visible = namedWasm.isCourageVisible();
     courage.value.active = namedWasm.isCourageActive();
-    courage.value.available = namedWasm.toNumber(HANDLES.courageCooldown) <= 0;
+    courage.value.available = !namedWasm.gt(HANDLES.courageCooldown, 0);
     courage.value.timer = formatDuration(HANDLES.courageTimer);
     courage.value.cooldown = formatDuration(HANDLES.courageCooldown);
     namedWasm.refreshCourageMultiplier();
@@ -740,9 +777,9 @@ function updateManaDisplay() {
     meridianPurification.value.affordable = namedWasm.canPurifyMeridians();
     meridianPurification.value.visible = namedWasm.hasTierOneAchievement(7);
     const [purificationEffect, purificationIncrease, purificationMultiplier, purificationRequirement] = formatDecimals([
-        HANDLES.meridianPurificationEffect,
+        namedWasm.effectiveMeridianPurificationEffectHandle(),
         SCRATCH_HANDLES.purificationRelativeIncrease,
-        HANDLES.purifiedMeridiansMultiplier,
+        namedWasm.effectivePurifiedMeridiansMultiplierHandle(),
         HANDLES.meridianPurificationRequirement,
     ]);
     meridianPurification.value.effect = `×${purificationEffect}`;
@@ -760,7 +797,7 @@ function updateGuildDisplay(subtab) {
 }
 
 function updateGuildShopDisplay() {
-    const guildRankIndex = namedWasm.toNumber(HANDLES.guildRank);
+    const guildRankIndex = namedWasm.getMagnitude(HANDLES.guildRank);
     guild.value.coins = formatDecimal(HANDLES.coins, 0);
     guild.value.shopItems = Array.from({ length: 3 }, (_, slot) => {
         const itemId = namedWasm.shopItemId(slot);
@@ -818,7 +855,7 @@ function unequipInventoryItem(slot, position) {
 }
 
 function updateGuildBoardDisplay() {
-    const guildRankIndex = namedWasm.toNumber(HANDLES.guildRank);
+    const guildRankIndex = namedWasm.getMagnitude(HANDLES.guildRank);
     guild.value.rank = GUILD_RANKS[guildRankIndex] ?? "F";
     guild.value.rankIndex = guildRankIndex;
     guild.value.nextRank = GUILD_RANKS[guildRankIndex + 1] ?? "---";
@@ -882,6 +919,7 @@ function updateCondensedDisplay() {
     namedWasm.refreshCondensedUpgradeState();
     namedWasm.refreshCondenseGain();
     memories.value.remembered = namedWasm.getTotalMemories();
+    memories.value.limited = namedWasm.isMemoryLimitReached();
     memories.value.focusing = namedWasm.isFocusing();
     const [manaMultiplier, productionMultiplier] = formatDecimals([
         namedWasm.memoryManaMultiplierHandle(), namedWasm.memoryProductionMultiplierHandle(),
@@ -894,6 +932,8 @@ function updateCondensedDisplay() {
         ? namedWasm.memoryChance(SCRATCH_HANDLES.condenseGain)
         : namedWasm.baseMemoryChance();
     memories.value.nextChance = (memoryChance * 100).toFixed(2);
+    memories.value.pityProgress = namedWasm.memoryPityProgress();
+    memories.value.pityEligible = namedWasm.unboostedMemoryChance(SCRATCH_HANDLES.condenseGain) > 0.05;
     for (const upgrade of condensedUpgrades.value) {
         const finalUpgrade = upgrade.index === condensedUpgrades.value.length - 1;
         const circleTwoUnlocked = !finalUpgrade || namedWasm.canSeeCircleTwoFinalUpgrade();
@@ -938,9 +978,14 @@ function updateStatisticsDisplay() {
     statistics.value.timeThisCondense = formatTotalTime(HANDLES.statistics_timeThisCondense);
     statistics.value.gameTimeThisCondense = formatTotalTime(HANDLES.statistics_gameTimeThisCondense);
     statistics.value.fastestCondense = formatCompletionTime(
-        namedWasm.toNumber(HANDLES.statistics_fastestCondense),
+        namedWasm.getMagnitude(HANDLES.statistics_fastestCondense),
         3,
     );
+    statistics.value.abyssUnlocked = abyssUnlocked.value;
+    statistics.value.sonicValue = formatDecimal(namedWasm.sonicValueLogarithmicHandle(), 6);
+    statistics.value.highestAbyssDepth = `${Math.round(namedWasm.getHighestAbyssDepthCompleted()).toLocaleString()} m`;
+    statistics.value.abyssRunTime = formatCompletionTime(namedWasm.getAbyssRunTime(), 1);
+    statistics.value.abyssRunsCompleted = namedWasm.getAbyssRunsCompleted();
     statistics.value.hasCondensed = namedWasm.hasCondensed();
 }
 
@@ -972,28 +1017,27 @@ function updateAchievementNotifications(force = false) {
 }
 
 function formatOoMPerSecond(handle) {
-    const value = namedWasm.toNumber(handle);
-    if (Number.isFinite(value) && Math.abs(value) < 0.01) return "0.00";
+    if (namedWasm.getLayer(handle) === 0 && namedWasm.getMagnitude(handle) < 0.01) return "0.00";
     return formatDecimal(handle);
 }
 
 function formatGameSpeed(handle) {
     if (!namedWasm.gt(handle, 0) || !namedWasm.lt(handle, 0.01)) return formatDecimal(handle);
-    const speed = Number(namedWasm.readString(handle));
-    return Number.isFinite(speed) ? speed.toExponential(2).replace("+", "") : formatDecimal(handle);
+    const speed = namedWasm.getSign(handle) * namedWasm.getMagnitude(handle);
+    return speed.toExponential(2).replace("+", "");
 }
 
 function formatDuration(handle) {
-    const seconds = namedWasm.toNumber(handle);
-    if (!Number.isFinite(seconds)) return `${formatDecimal(handle)}s`;
+    if (namedWasm.getLayer(handle) !== 0) return `${formatDecimal(handle)}s`;
+    const seconds = namedWasm.getSign(handle) * namedWasm.getMagnitude(handle);
     const wholeSeconds = Math.max(0, Math.ceil(seconds));
     const minutes = Math.floor(wholeSeconds / 60);
     return `${minutes}:${String(wholeSeconds % 60).padStart(2, "0")}`;
 }
 
 function formatTotalTime(handle) {
-    const seconds = namedWasm.toNumber(handle);
-    if (!Number.isFinite(seconds)) return `${formatDecimal(handle)} seconds`;
+    if (namedWasm.getLayer(handle) !== 0) return `${formatDecimal(handle)} seconds`;
+    const seconds = namedWasm.getSign(handle) * namedWasm.getMagnitude(handle);
     const totalSeconds = Math.max(0, Math.floor(seconds));
     const days = Math.floor(totalSeconds / 86400);
     const hours = Math.floor(totalSeconds % 86400 / 3600);
@@ -1174,7 +1218,7 @@ function focus() {
 
 function expandManaCircle() {
     if (!namedWasm.expandManaCircle()) return;
-    manaCircle.value = namedWasm.toNumber(HANDLES.mana_circle_tier);
+    manaCircle.value = namedWasm.getMagnitude(HANDLES.mana_circle_tier);
     selectTab("mana");
     pingTab("mana");
     pingTab("condensed");
@@ -1203,10 +1247,6 @@ function castCombatSpell(index) {
 function abandonGuildQuest() {
     namedWasm.abandonGuildQuest();
     void saveGame();
-}
-
-function dismissQuestResult() {
-    namedWasm.dismissQuestResult();
 }
 
 function moveInventoryItem(item, position) {
@@ -1332,6 +1372,209 @@ function recordClick() {
     namedWasm.recordClick();
 }
 
+function enterAbyss() {
+    if (crushingDepth.value || enteredAbyss.value || namedWasm.isAbyssRunActive() || namedWasm.isFocusing()) return;
+    abyssEntryTransition.value = "zoom";
+    namedWasm.setInAbyss(true);
+    enteredAbyss.value = namedWasm.isInAbyss();
+    void saveGame();
+}
+
+async function completeDepthCrushing() {
+    namedWasm.setTimeDiscovery(1);
+    if (namedWasm.isAbyssRunActive()) escapeAbyssRunAction();
+    abyssRunActive.value = false;
+    timeDiscovery.value = 1;
+    namedWasm.setInAbyss(false);
+    enteredAbyss.value = false;
+    selectTab("mana");
+    document.body.classList.remove("abyss-active");
+    setAbyssActive(false);
+    setAbyssVortexActive(false);
+    await saveGame();
+}
+
+function completeClockDialogue() {
+    if (namedWasm.isAbyssRunActive()) escapeAbyssRunAction();
+    namedWasm.setInAbyss(false);
+    enteredAbyss.value = false;
+    abyssRunActive.value = false;
+    namedWasm.setClockRecoveryStage(2);
+    clockRecovery.value = 2;
+    timeEntrancePending.value = true;
+    activeSubtabs.value.time = "time-clock";
+    selectTab("time");
+    document.body.classList.remove("abyss-active");
+    setAbyssActive(false);
+    setAbyssVortexActive(false);
+    void saveGame();
+}
+
+function completeTimeReveal() {
+    namedWasm.setTimeDiscovery(2);
+    timeDiscovery.value = 2;
+    timeLabel.value = "Time";
+    void saveGame();
+}
+
+async function leaveAbyss() {
+    namedWasm.setInAbyss(false);
+    enteredAbyss.value = namedWasm.isInAbyss();
+    void saveGame();
+    await nextTick();
+    const onAbyssTab = activeTab.value === "abyss";
+    document.body.classList.toggle("abyss-active", onAbyssTab);
+    setAbyssActive(onAbyssTab);
+    setAbyssVortexActive(onAbyssTab && activeSubtab.value === "depths");
+}
+
+function beginAbyssRun() {
+    if (!beginAbyssRunAction()) return;
+    clockRecovery.value = namedWasm.getClockRecoveryStage();
+    abyssRunActive.value = true;
+    crushingDepth.value = namedWasm.canDiscoverTime();
+    enteredAbyss.value = false;
+    selectTab("mana");
+    document.body.classList.add("abyss-active");
+    setAbyssActive(true);
+    setAbyssVortexActive(false);
+}
+
+function escapeAbyssRun() {
+    if (crushingDepth.value) return;
+    if (!escapeAbyssRunAction()) return;
+    abyssEntryTransition.value = "fade";
+    enteredAbyss.value = true;
+}
+
+const gameFrameState = computed(() => ({
+    mana: mana.value,
+    sonicValue: sonicValue.value,
+    abyssRunActive: abyssRunActive.value,
+    crushingDepth: crushingDepth.value,
+    clockGuidance: clockBroken.value && clockRecovery.value === 0,
+    canEscapeAbyssRun: !crushingDepth.value && canEscapeAbyssRun.value,
+    activeCrystal: activeCrystal.value,
+    canCondense: canCondense.value,
+    manaCircle: manaCircle.value,
+    crystalCanShatter: crystalCanShatter.value,
+    crystalGoalReached: crystalGoalReached.value,
+    memories: memories.value,
+    condenseManaGained: condenseManaGained.value,
+    condensedUnlocked: condensedUnlocked.value,
+    condensedMana: condensedMana.value,
+    visibleTabs: visibleTabs.value,
+    activeTab: activeTab.value,
+    timeRevealed: timeDiscovery.value === 2,
+    mountainUnlocked: mountainUnlocked.value,
+    timeEntrancePending: timeEntrancePending.value,
+    activeSubtab: activeSubtab.value,
+    pingedTabs: pingedTabs.value,
+    pingedSubtabs: pingedSubtabs.value,
+    tierOneUpgrades: tierOneUpgrades.value,
+    castSpeedSpell: castSpeedSpell.value,
+    castMax: castMax.value,
+    sealedMeridians: sealedMeridians.value,
+    matrix: matrix.value,
+    courage: courage.value,
+    meridianPurification: meridianPurification.value,
+    potionEffects: potionEffects.value,
+    gameSpeed: gameSpeed.value,
+    gameSpeedIncreased: gameSpeedIncreased.value,
+    manaPerSecond: manaPerSecond.value,
+    oomPerSecond: oomPerSecond.value,
+    showOoMPerSecond: showOoMPerSecond.value,
+    expCostIncreasesAt: expCostIncreasesAt.value,
+    statistics: statistics.value,
+    condensedUpgrades: condensedUpgrades.value,
+    condensedUpgradePlaceholders: condensedUpgradePlaceholders.value,
+    remembrance: remembrance.value,
+    crystalStateRevision: crystalStateRevision.value,
+    guild: guild.value,
+    guildQuests: guildQuests.value,
+    questResult: questResult.value,
+    equipmentUnlocked: equipmentUnlocked.value,
+    cantRankUp: cantRankUp.value,
+    combat: combat.value,
+    autocasters: autocasters.value,
+    achievements: achievements.value,
+    updateRate: updateRate.value,
+    renderUpdateRate: renderUpdateRate.value,
+    offlineProgress: offlineProgress.value,
+    starsVisible: starsVisible.value,
+    starsAnimated: starsAnimated.value,
+    newsTickerEnabled: newsTickerEnabled.value,
+    messageTickerParticles: messageTickerParticles.value,
+}));
+
+const baseGameFrameActions = {
+    completeTimeEntrance: () => { timeEntrancePending.value = false; },
+    completeTimeReveal,
+    updateTimeLabel: (label) => { timeLabel.value = label; },
+    handlePrimaryResetAction,
+    enterAbyss,
+    escapeCrystal,
+    escapeAbyssRun,
+    selectTab,
+    selectSubtab,
+    buyTierOne,
+    empowerTierOne,
+    buyAllTierOne,
+    toggleCastMode,
+    castSpeed,
+    sealMeridians,
+    increaseMatrix,
+    activateCourage,
+    purifyMeridians,
+    sealedMeridianResetNoGain,
+    buyCondensedUpgrade,
+    focus,
+    buyMemorial,
+    buyRemembranceUpgrade,
+    toggleRemembranceRespec,
+    exportRemembrance,
+    importRemembrance,
+    openManaCircleInfo: () => openInfo("mana-circle"),
+    enterCrystal,
+    applyToGuild,
+    acceptGuildQuest,
+    dismissQuestResult: namedWasm.dismissQuestResult,
+    moveInventoryItem,
+    equipInventoryItem,
+    unequipInventoryItem,
+    useInventoryItem,
+    sellInventoryItem,
+    sellAllMaterials,
+    sellSpareEquipment,
+    sellAllItems,
+    drinkAllPotions,
+    buyShopItem,
+    buyGuildShopUpgrade,
+    expandManaCircle,
+    castCombatSpell,
+    abandonGuildQuest,
+    hireAutocaster,
+    assignAutocaster,
+    moveAutocaster,
+    sellAutocaster,
+    setAutocasterCastsMax,
+    setAutocasterPurifyMinimum,
+    setAutocasterCondenseGain,
+    setAutocasterMaximum,
+    toggleAutocasters,
+    editKeybinds,
+    setStarsVisible,
+    setStarsAnimated,
+    setNewsTickerEnabled,
+    setMessageTickerParticles,
+    exportGameSave,
+    importGameSave,
+    resetGame,
+    updateTickRate,
+    setRenderUpdateRate,
+    setOfflineProgress,
+};
+
 onMounted(() => {
     document.addEventListener("click", recordClick);
     unsubscribeFromCondense = subscribeToCondense(handleCondensed);
@@ -1356,6 +1599,7 @@ onBeforeUnmount(() => {
 
 <template>
     <div class="game-shell">
+        <div :inert="crushingDepth || clockDialogue || undefined">
         <output v-if="showFpsCounter" class="fps-counter" aria-label="Frames per second">{{ displayedFps }} FPS</output>
         <div
             v-if="activeCrystal >= 0"
@@ -1392,186 +1636,21 @@ onBeforeUnmount(() => {
             @speed-up="speedUpTimeSimulation"
             @skip="skipTimeSimulation"
         />
-        <GameHeader :mana="mana" />
-        <button
-            v-if="activeCrystal >= 0 || canCondense || manaCircle > 0"
-            class="condense-button"
-            type="button"
-            :disabled="activeCrystal >= 0 ? !crystalCanShatter : !canCondense"
-            @click="handlePrimaryResetAction"
-        >
-            <strong>{{ activeCrystal >= 0 ? (crystalGoalReached ? "Shatter the Crystal" : formatCrystalGoal(CRYSTAL_GOALS[activeCrystal])) : (memories.focusing ? "Remember" : "Condense") }}</strong>
-            <small v-if="activeCrystal < 0 && manaCircle > 0 && canCondense">
-                <br>{{ memories.focusing ? `for an ${memories.nextChance}% chance` : `for ${condenseManaGained} condensed mana` }}
-            </small>
-        </button>
-        <button
-            v-if="activeCrystal >= 0"
-            class="escape-crystal-button"
-            type="button"
-            @click="escapeCrystal"
-        >
-                Escape Crystal {{ activeCrystal + 1 }}
-        </button>
-        <div v-if="condensedUnlocked" class="condensed-mana-display">
-            <span>You have</span>
-            <strong>{{ condensedMana }}</strong>
-            <span>condensed mana</span>
-        </div>
-        <TabNavigation
-            :tabs="visibleTabs"
-            :active-tab="activeTab"
-            :active-subtab="activeSubtab"
-            :pinged-tabs="pingedTabs"
-            :pinged-subtabs="pingedSubtabs"
-            @select-tab="selectTab"
-            @select-subtab="selectSubtab"
+
+        <BaseGameFrame
+            v-if="!enteredAbyss"
+            key="base-game-frame"
+            :frame="gameFrameState"
+            :actions="baseGameFrameActions"
         />
-        <main class="content-frame">
-            <ManaTab
-                v-if="activeTab === 'mana'"
-                :upgrades="tierOneUpgrades"
-                :cast-speed="castSpeedSpell"
-                :cast-mode="castMax ? 'Cast Max' : 'Cast One'"
-                :sealed-meridians="sealedMeridians"
-                :matrix="matrix"
-                :courage="courage"
-                :meridian-purification="meridianPurification"
-                :potion-effects="potionEffects"
-                :game-speed="gameSpeed"
-                :game-speed-increased="gameSpeedIncreased"
-                :manaPerSecond="manaPerSecond"
-                :oom-per-second="oomPerSecond"
-                :show-oo-m-per-second="showOoMPerSecond"
-                :exp-cost-increases-at="expCostIncreasesAt"
-                :hide-cost-warning="activeCrystal === 9 || activeCrystal === 14"
-                :producers-only="activeCrystal === 2 || activeCrystal === 14"
-                :crystal-puzzle-reset="activeCrystal >= 11"
-                @buy="buyTierOne"
-                @empower="empowerTierOne"
-                @buy-all="buyAllTierOne"
-                @toggle-cast-mode="toggleCastMode"
-                @cast-speed="castSpeed"
-                @seal-meridians="sealMeridians"
-                @increase-matrix="increaseMatrix"
-                @activate-courage="activateCourage"
-                @purify-meridians="purifyMeridians"
-                @sealed-meridian-reset-no-gain="sealedMeridianResetNoGain"
-            />
-            <StatisticsTab
-                v-else-if="activeTab === 'statistics'"
-                :statistics="statistics"
-            />
-            <CondensedTab
-                v-else-if="activeTab === 'condensed'"
-                :active-subtab="activeSubtab"
-                :condensed-mana="condensedMana"
-                :upgrades="condensedUpgrades"
-                :placeholders="condensedUpgradePlaceholders"
-                :memories="memories"
-                :remembrance="remembrance"
-                :isAscended="manaCircle > 0"
-                @buy="buyCondensedUpgrade"
-                @focus="focus"
-                @buy-memorial="buyMemorial"
-                @buy-remembrance="buyRemembranceUpgrade"
-                @respec="toggleRemembranceRespec"
-                @export-remembrance="exportRemembrance"
-                @import-remembrance="importRemembrance"
-            />
-            <AbyssTab
-                v-else-if="activeTab === 'abyss'"
-                :active-subtab="activeSubtab"
-            />
-            <ManaCircleTab
-                v-else-if="activeTab === 'manacircle'"
-                :active-subtab="activeSubtab"
-                :mana-circle="manaCircle"
-                @info="openInfo('mana-circle')"
-            />
-            <CrystalsTab
-                v-else-if="activeTab === 'crystals'"
-                :active-subtab="activeSubtab"
-                :state-revision="crystalStateRevision"
-                @enter="enterCrystal"
-            />
-            <GuildTab
-                v-else-if="activeTab === 'guild'"
-                :active-subtab="activeSubtab"
-                :guild="guild"
-                :quests="guildQuests"
-                :quest-result="questResult"
-                :mana-circle="manaCircle"
-                :equipment-unlocked="equipmentUnlocked"
-                :cant-rank-up="cantRankUp"
-                @apply="applyToGuild"
-                @accept="acceptGuildQuest"
-                @dismiss-result="dismissQuestResult"
-                @move-item="moveInventoryItem"
-                @equip-item="equipInventoryItem"
-                @unequip-item="unequipInventoryItem"
-                @use-item="useInventoryItem"
-                @sell-item="sellInventoryItem"
-                @sell-all-materials="sellAllMaterials"
-                @sell-equipment="sellSpareEquipment"
-                @sell-all-items="sellAllItems"
-                @drink-all-potions="drinkAllPotions"
-                @buy-shop-item="buyShopItem"
-                @buy-shop-upgrade="buyGuildShopUpgrade"
-                @ascend="expandManaCircle"
-            />
-            <QuestTab
-                v-else-if="activeTab === 'quest'"
-                :combat="combat"
-                @cast="castCombatSpell"
-                @abandon="abandonGuildQuest"
-            />
-            <AutocastersTab
-                v-else-if="activeTab === 'autocasters'"
-                :autocasters="autocasters"
-                :coins="guild.coins"
-                :mana-circle="manaCircle"
-                @hire="hireAutocaster"
-                @assign="assignAutocaster"
-                @move="moveAutocaster"
-                @sell="sellAutocaster"
-                @casts-max="setAutocasterCastsMax"
-                @purify-minimum="setAutocasterPurifyMinimum"
-                @condense-gain="setAutocasterCondenseGain"
-                @maximum-owned="setAutocasterMaximum"
-                @toggle="toggleAutocasters"
-            />
-            <AchievementsTab
-                v-else-if="activeTab === 'achievements'"
-                :active-subtab="activeSubtab"
-                :achievements="achievements"
-                :mana-circle="manaCircle + 1"
-            />
-            <OptionsTab
-                v-else-if="activeTab === 'options'"
-                :active-subtab="activeSubtab"
-                :update-rate="updateRate"
-                :render-update-rate="renderUpdateRate"
-                :offline-progress="offlineProgress"
-                :stars-visible="starsVisible"
-                :stars-animated="starsAnimated"
-                :news-ticker-enabled="newsTickerEnabled"
-                :message-ticker-particles="messageTickerParticles"
-                @edit-keybinds="editKeybinds"
-                @stars-visible="setStarsVisible"
-                @stars-animated="setStarsAnimated"
-                @news-ticker-enabled="setNewsTickerEnabled"
-                @message-ticker-particles="setMessageTickerParticles"
-                @export-save="exportGameSave"
-                @import-save="importGameSave"
-                @reset-game="resetGame"
-                @update-rate="updateTickRate"
-                @render-update-rate="setRenderUpdateRate"
-                @offline-progress="setOfflineProgress"
-            />
+        <AbyssFrame
+            v-else
+            key="abyss-frame"
+            :entry-transition="abyssEntryTransition"
+            @leave-abyss="leaveAbyss"
+            @begin-run="beginAbyssRun"
+        />
 
-
-        </main>
         <div v-if="resetConfirmationVisible" class="confirmation-overlay" role="presentation" @click.self="cancelResetGame">
             <section class="confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-game-title">
                 <h2 id="reset-game-title">Are you sure?</h2>
@@ -1585,17 +1664,32 @@ onBeforeUnmount(() => {
         <KeybindMenu v-if="changeKeybindsVisible" @close="changeKeybindsVisible = false" />
         <InfoTab v-if="infoTabVisible" :initial-topic-id="infoTopicId" @close="infoTabVisible = false" />
         <MessageTicker
-            v-if="newsTickerEnabled"
+            v-if="newsTickerEnabled && !enteredAbyss"
             :key="messageTickerParticles ? 'particles' : 'text'"
             :particles="messageTickerParticles"
+            :paused="worldTimeStopped"
             @message-displayed="updateMessageTickerStatistics"
         />
-        <footer>The Mana Paradox v0.0.14</footer>
+        <footer>The Mana Paradox v0.0.15</footer>
         <GoalProgressBar :goal="nextGoal" :progress="nextGoalProgress" />
+        </div>
+        <ClockDialogue v-if="clockDialogue" @return="completeClockDialogue" @complete="clockDialogue = false" />
+        <DepthCrushing v-if="crushingDepth" @return="completeDepthCrushing" @complete="crushingDepth = false" />
     </div>
 </template>
 
 <style>
+.time-guidance { animation: time-blue-beacon 2s ease-in-out infinite !important; }
+@keyframes time-blue-beacon {
+    0%, 100% { box-shadow: 0 0 3px 1px #4ba9ff55, 0 0 10px 2px #319cfa33; }
+    50% { box-shadow: 0 0 9px 3px #66bdffbb, 0 0 25px 8px #319cfa55; color: #d0efff; }
+}
+.world-time-stopped .camera-particle,
+.world-time-stopped .camera-water,
+.world-time-stopped .camera-scanlines,
+.world-time-stopped .distant-lifeform,
+.world-time-stopped .abyss-structure { animation-play-state: paused !important; }
+
 .fps-counter {
     position: fixed;
     z-index: 2000;

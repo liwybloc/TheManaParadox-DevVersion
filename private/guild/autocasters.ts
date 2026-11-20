@@ -1,4 +1,4 @@
-import { addUS, createDecimal, gte, lt, subUS, toNumber, writeNumber } from "../core/break_eternity.js";
+import { addUS, createDecimal, getMagnitude, gte, gt, lt, subUS, writeNumber } from "../core/break_eternity.js";
 import { canCondense, refreshCondenseGain } from "../game/condensed.js";
 import { activateCourage } from "../game/courage.js";
 import { castSpeed, increaseMatrix, sealMeridians } from "../game/progression.js";
@@ -94,7 +94,7 @@ export function setProducerAutocasterCastsMax(index: i32, value: bool): void {
 }
 
 export function autocasterPurifyMinimumRelativeMultiplier(): f64 {
-    return toNumber(purifyMinimumHandle);
+    return getMagnitude(purifyMinimumHandle);
 }
 
 export function setAutocasterPurifyMinimumRelativeMultiplier(value: f64): void {
@@ -102,7 +102,7 @@ export function setAutocasterPurifyMinimumRelativeMultiplier(value: f64): void {
 }
 
 export function autocasterCondenseGain(): f64 {
-    return toNumber(autoCondenseGainHandle);
+    return getMagnitude(autoCondenseGainHandle);
 }
 
 export function setAutocasterCondenseGain(value: f64): void {
@@ -111,7 +111,7 @@ export function setAutocasterCondenseGain(value: f64): void {
 
 function canAutoCondense(): bool {
     if (!canCondense()) return false;
-    if (toNumber(player.mana_circle_tier) <= 0) return true;
+    if (!gt(player.mana_circle_tier, 0)) return true;
     refreshCondenseGain();
     return gte(scratch.condenseGain, autoCondenseGainHandle);
 }
@@ -204,16 +204,29 @@ export function casterAssignedToTask(task: i32): i32 {
     return UNASSIGNED;
 }
 
-export function updateAutocasters(deltaSeconds: f64): void {
+export function updateAutocasters(deltaSeconds: f64, chargeWages: bool): void {
     if (!autocastersEnabled || deltaSeconds <= 0) return;
-    for (let caster: i32 = 0; caster < MAX_AUTOCASTERS; caster++) {
-        if (!isAutocasterHired(caster)) continue;
-        updateWage(caster, deltaSeconds);
+    if (chargeWages) {
+        for (let caster: i32 = 0; caster < MAX_AUTOCASTERS; caster++) {
+            if (!isAutocasterHired(caster)) continue;
+            updateWage(caster, deltaSeconds);
+        }
     }
     for (let task: i32 = 0; task < AUTOCASTER_TASK_COUNT; task++) {
         const caster = casterAssignedToTask(task);
-        if (caster >= 0) updateAction(caster, task, deltaSeconds);
+        if (caster >= 0) updateAction(caster, task, deltaSeconds, chargeWages);
     }
+}
+
+export function updateCourageAutocasters(deltaSeconds: f64, chargeWages: bool): void {
+    if (!autocastersEnabled || deltaSeconds <= 0) return;
+    if (chargeWages) {
+        for (let caster: i32 = 0; caster < MAX_AUTOCASTERS; caster++) {
+            if (isAutocasterHired(caster) && assignments[caster] === 9) updateWage(caster, deltaSeconds);
+        }
+    }
+    const caster = casterAssignedToTask(9);
+    if (caster >= 0) updateAction(caster, 9, deltaSeconds, chargeWages);
 }
 
 export function isAutocastersEnabled(): bool {
@@ -262,7 +275,7 @@ function updateWage(caster: i32, deltaSeconds: f64): void {
     subUS(player.coins, wage);
 }
 
-function updateAction(caster: i32, task: i32, deltaSeconds: f64): void {
+function updateAction(caster: i32, task: i32, deltaSeconds: f64, chargeWages: bool): void {
     actionCooldowns[caster] = Math.max(0, actionCooldowns[caster] - deltaSeconds);
     if (actionCooldowns[caster] > 0) return;
     let acted = false;
@@ -298,7 +311,7 @@ function updateAction(caster: i32, task: i32, deltaSeconds: f64): void {
         / tierSpeed
         / achievementSpeed
         / (2 ** (assignedCasterCount(task) - 1));
-    recordTaskWork(task);
+    if (chargeWages) recordTaskWork(task);
 }
 
 function assignedCasterCount(task: i32): i32 {

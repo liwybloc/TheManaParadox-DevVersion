@@ -1,11 +1,14 @@
-import { addUS, copyInto, divUS, gt, log10Into, mulUS, powInto, subUS, toNumber, writeNumber } from "../core/break_eternity.js";
+import { timeMemoryGain } from "./time.js";
+import { addUS, copyInto, divUS, getMagnitude, gt, log10Into, mulUS, powInto, subUS, writeNumber } from "../core/break_eternity.js";
 import { crystalEffectHandle, crystalRewardHandle, hasCompletedCrystal, isCrystalActive, isSpecificCrystalActive } from "./crystals.js";
 import { unlockTierOneAchievement } from "./achievements.js";
 import type { Player } from "../core/player.js";
 import type { Scratch } from "../core/scratch.js";
+import "../abyss/handles.js";
+import { resonanceTowerEffectHandle } from "../abyss/abyss.js";
 
 export const MEMORY_MILESTONES = [
-    1, 3, 5, 10, 25, 50, 75, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 50_000, 100_000,
+    1, 3, 5, 10, 25, 50, 75, 100, 250, 500, 1_000, 2_500, 50_000, 250_000, 1_000_000, 10_000_000,
 ] as const;
 
 export const MEMORY_MILESTONE_REWARDS: Readonly<Record<number, string>> = {
@@ -19,6 +22,8 @@ export const MEMORY_MILESTONE_REWARDS: Readonly<Record<number, string>> = {
     100: "You gain ×10 more mana inside of crystals",
     250: "Increase start of exponential cost scaling of producers based on memories (Currently: +{memoryCostStartAdd})",
     500: "Unlock Remembrance Upgrade Tree",
+    1_000: "The Abyss effects scale 5% slower",
+    2_500: "Abyssal Resonance towers scale 25% faster",
 };
 
 declare const scratch: Scratch;
@@ -28,18 +33,35 @@ declare const player: Player;
 
 let totalMemories: i32 = 0;
 let focusing: bool = false;
+let memoryPityFailures: i32 = 0;
+
+export function getMemoryPityFailures(): i32 {
+    return memoryPityFailures;
+}
+
+export function setMemoryPityFailures(value: i32): void {
+    memoryPityFailures = value < 0 ? 0 : value > 100 ? 100 : value;
+}
+
+export function memoryPityProgress(): f64 {
+    return Math.log(1 + <f64>memoryPityFailures / 10) / Math.log(11);
+}
 
 export function getTotalMemories(): i32 {
     return totalMemories;
 }
 
 export function setTotalMemories(value: i32): void {
-    totalMemories = value < 0 ? 0 : value;
+    totalMemories = value < 0 ? 0 : !hasCompletedCrystal(14) && value > 999 ? 999 : value;
     if (totalMemories >= 500) unlockTierOneAchievement(52);
 }
 
 export function hasMemoryMilestone(requirement: i32): bool {
     return totalMemories >= requirement;
+}
+
+export function isMemoryLimitReached(): bool {
+    return totalMemories >= 999 && !hasCompletedCrystal(14);
 }
 
 export function isFocusing(): bool {
@@ -54,14 +76,20 @@ export function baseMemoryChance(): f64 {
     return 1 / (totalMemories + 1);
 }
 
-export function memoryChance(condensedManaGained: i32): f64 {
+export function unboostedMemoryChance(condensedManaGained: i32): f64 {
     const baseChance = baseMemoryChance();
     if (!gt(condensedManaGained, 0)) return baseChance;
     copyInto(scratch.currencyGain, condensedManaGained);
     addUS(scratch.currencyGain, 1);
     log10Into(scratch.currencyGain, scratch.currencyGain);
-    const condensedManaBonus = Math.max(1, 1 + toNumber(scratch.currencyGain));
+    const condensedManaBonus = Math.max(1, 1 + getMagnitude(scratch.currencyGain));
     return Math.min(1, baseChance * condensedManaBonus);
+}
+
+export function memoryChance(condensedManaGained: i32): f64 {
+    const chance = unboostedMemoryChance(condensedManaGained);
+    if (chance <= 0.05 || chance >= 0.99) return chance;
+    return chance + (0.99 - chance) * memoryPityProgress();
 }
 
 export function focusGameSpeedMultiplier(): i32 {
@@ -93,7 +121,9 @@ export function memoryProductionMultiplierHandle(): i32 {
         return scratch.memoryProductionMultiplier;
     }
     writeNumber(scratch.memoryProductionExponent, totalMemories + 1);
-    powInto(scratch.memoryProductionMultiplier, 2, scratch.memoryProductionExponent);
+    writeNumber(scratch.memoryCrystalMultiplier, 2);
+    mulUS(scratch.memoryCrystalMultiplier, resonanceTowerEffectHandle(4, 0.1));
+    powInto(scratch.memoryProductionMultiplier, scratch.memoryCrystalMultiplier, scratch.memoryProductionExponent);
     if (isSpecificCrystalActive(9)) applyCrystal10MemoryReward(crystalEffectHandle(9, 0));
     if (hasCompletedCrystal(9)) applyCrystal10MemoryReward(crystalRewardHandle(9, 0));
     return scratch.memoryProductionMultiplier;
@@ -106,7 +136,7 @@ function applyCrystal10MemoryReward(base: i32): void {
 }
 
 export function memoryGainMultiplier(): i32 {
-    return hasMemoryMilestone(50) ? 1 + totalMemories / 50 : 1;
+    return timeMemoryGain(hasMemoryMilestone(50) ? 1 + totalMemories / 50 : 1);
 }
 
 export function memoryCostStartAdd(): i32 {
@@ -124,16 +154,28 @@ export function toggleFocus(): bool {
 }
 
 export function resolveFocusedCondense(roll: f64, chance: f64): i32 {
-    if (!focusing) return 0;
+    if (!focusing || isMemoryLimitReached()) return 0;
+    const pityEligible = chance > 0.05;
     let memoriesGained = 0;
     while (chance >= 1) {
         memoriesGained++;
         chance--;
     }
     if (roll < chance) memoriesGained++;
+    if (memoriesGained === 0) {
+        if (pityEligible) setMemoryPityFailures(memoryPityFailures + 1);
+        return 0;
+    }
+    memoryPityFailures = 0;
+    const scaledGain = <f64>memoriesGained * <f64>memoryGainMultiplier();
+    const remainingCapacity = 2_147_483_647 - totalMemories;
+    memoriesGained = scaledGain >= <f64>remainingCapacity ? remainingCapacity : <i32>scaledGain;
+    const previousMemories = totalMemories;
+    totalMemories = !hasCompletedCrystal(14) && totalMemories + memoriesGained > 999
+        ? 999
+        : totalMemories + memoriesGained;
+    memoriesGained = totalMemories - previousMemories;
     if (memoriesGained === 0) return 0;
-    memoriesGained *= memoryGainMultiplier();
-    totalMemories += memoriesGained;
     if (totalMemories >= 500) unlockTierOneAchievement(52);
     return memoriesGained;
 }

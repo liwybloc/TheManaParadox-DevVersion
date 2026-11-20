@@ -421,6 +421,10 @@ export function getLayer(handle: i32): f64 {
     return readLayer(handle);
 }
 
+export function isFiniteDecimal(handle: i32): bool {
+    return isFinite(readSign(handle)) && isFinite(readLayer(handle)) && isFinite(readMagnitude(handle));
+}
+
 export function getMagnitude(handle: i32): f64 {
     return readMagnitude(handle);
 }
@@ -665,22 +669,6 @@ export function pow10(value: i32): i32 {
     const result = allocateDecimal();
     pow10Into(result, value);
     return result;
-}
-
-export function toNumber(value: i32): f64 {
-    const sign = readSign(value);
-    const layer = readLayer(value);
-    const magnitude = readMagnitude(value);
-
-    if (isNaN(sign) || isNaN(layer) || isNaN(magnitude)) return NaN;
-    if (sign === 0) return 0;
-    if (layer === Infinity || magnitude === Infinity) return sign * Infinity;
-
-    if (layer === 0) return sign * magnitude;
-    if (layer === 1) return sign * Math.pow(10, magnitude);
-
-    if (magnitude < 0) return sign * 0;
-    return sign * Infinity;
 }
 
 export function floorInto(result: i32, value: i32): void {

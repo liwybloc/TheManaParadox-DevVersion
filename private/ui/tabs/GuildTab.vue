@@ -345,7 +345,7 @@ onBeforeUnmount(() => {
         </template>
         <template v-else-if="activeSubtab === 'guild-ascension-hall'">
             <div v-if="manaCircle > 0" class="ascension-hall-unavailable">
-                <strong>The Ascension Hall is not ready for you...</strong>
+                <strong>You are not ready for The Ascension Hall...</strong>
             </div>
             <AscensionHall v-else @ascend="$emit('ascend')" />
         </template>

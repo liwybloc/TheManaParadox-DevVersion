@@ -1,11 +1,84 @@
-import { writeNumber, readString } from "../core/break_eternity.js";
+import { namedWasm } from "../../generated/_wasm$globals.js";
+import { createZero, readLayer, readMagnitude, readSign, writeNumber, readString } from "../core/break_eternity.js";
 import { CONDENSED_UPGRADE_COUNT, setCondensedUpgrade } from "../game/condensed.js";
 import { clampManaToInfinityBoundary } from "../game/currencies.js";
 import { HANDLES } from "../core/player.js";
+import { SCRATCH_HANDLES } from "../core/scratch.js";
 import { refreshMatrixDerivedState, refreshSealedMeridiansDerivedState } from "../game/progression.js";
-import { refreshTierOneDerivedState } from "../game/tier_one.js";
-import { setTotalMemories } from "../game/memories.js";
+import { buyMaxAllTierOne, buyMaxTierOne, canBuyTierOne, isTierOneVisible, refreshTierOneDerivedState, tierOneBoughtHandle, tierOneCostHandle, tierOneMultiplierHandle, tierOneDisplayMultiplierHandle, tierOneEmpowermentHandle, effectivePurifiedMeridiansMultiplierHandle } from "../game/tier_one.js";
+import { getTotalMemories, memoryProductionMultiplierHandle, setTotalMemories } from "../game/memories.js";
 import { setGuildShopUpgrade, setQuestRefreshRemaining } from "../guild/guild.js";
+import { ABYSS_HANDLES } from "../abyss/handles.js";
+import { TIME_HANDLES, TIME_UPGRADES, isClockBroken, setClockBrokenAt, setClockOffsetSeconds, setTimeUpgradeLevel, timeUpgradeLevel, timeUpgradeMultiplierHandle } from "../game/time.js";
+import { setMemorials } from "../game/remembrance.js";
+
+const PRODUCER_AMOUNT_HANDLES = [
+    HANDLES.count_manaConduit,
+    HANDLES.count_conduitConjugation,
+    HANDLES.count_conjugationCreation,
+    HANDLES.count_creationManufactory,
+    HANDLES.count_manufactureStaff,
+];
+
+function decimalDebug(handle: number) {
+    return {
+        value: readString(handle),
+        sign: readSign(handle),
+        layer: readLayer(handle),
+        magnitude: readMagnitude(handle),
+    };
+}
+
+function producerDebug(index: number) {
+    if (!Number.isInteger(index) || index < 0 || index >= PRODUCER_AMOUNT_HANDLES.length) {
+        throw new Error("Producer index must be an integer from 0 to 4");
+    }
+    return {
+        index,
+        visible: isTierOneVisible(index),
+        affordable: canBuyTierOne(index),
+        mana: decimalDebug(HANDLES.mana),
+        cost: decimalDebug(tierOneCostHandle(index)),
+        amount: decimalDebug(PRODUCER_AMOUNT_HANDLES[index]),
+        bought: decimalDebug(tierOneBoughtHandle(index)),
+        multiplier: decimalDebug(tierOneMultiplierHandle(index)),
+        displayedMultiplier: decimalDebug(tierOneDisplayMultiplierHandle(index)),
+        meditation: decimalDebug(HANDLES.castSpeedMagnitude),
+        purification: decimalDebug(effectivePurifiedMeridiansMultiplierHandle()),
+        empowerments: decimalDebug(tierOneEmpowermentHandle(index)),
+        achievementMultiplier: decimalDebug(HANDLES.multiplier_currencyGlobal),
+        perBoostMultiplier: decimalDebug(HANDLES.multiplier_tierOnePerPurchase),
+        memories: getTotalMemories(),
+        memoryProduction: decimalDebug(memoryProductionMultiplierHandle()),
+        condensedMana: decimalDebug(HANDLES.condensedMana),
+        timeProduction: decimalDebug(timeUpgradeMultiplierHandle(0)),
+        timeUpgradeLevels: TIME_UPGRADES.map((_, upgrade) => timeUpgradeLevel(upgrade)),
+    };
+}
+
+(globalThis as any).inspectProducer = (index = 0) => {
+    const state = producerDebug(index);
+    console.log("Producer state", state);
+    return state;
+};
+
+(globalThis as any).debugBuyMaxProducer = (index = 0) => {
+    const before = producerDebug(index);
+    const result = buyMaxTierOne(index);
+    const after = producerDebug(index);
+    const debug = { result, before, after };
+    console.log("Producer Cast Max", debug);
+    return debug;
+};
+
+(globalThis as any).debugBuyMaxAllProducers = () => {
+    const before = PRODUCER_AMOUNT_HANDLES.map((_, index) => producerDebug(index));
+    buyMaxAllTierOne();
+    const after = PRODUCER_AMOUNT_HANDLES.map((_, index) => producerDebug(index));
+    const debug = { before, after };
+    console.log("Producer Cast Max All", debug);
+    return debug;
+};
 
 (globalThis as any).readValue = (value: keyof typeof HANDLES) => {
     return readString(HANDLES[value] ?? HANDLES.mana);
@@ -18,6 +91,10 @@ import { setGuildShopUpgrade, setQuestRefreshRemaining } from "../guild/guild.js
     refreshMatrixDerivedState();
     clampManaToInfinityBoundary();
 };
+
+(globalThis as any).assignAbyss = (value: keyof typeof ABYSS_HANDLES, number: number) => {
+    writeNumber(ABYSS_HANDLES[value] ?? ABYSS_HANDLES.sonicValue, number);
+}
 
 (globalThis as any).assignOwned = (category: string, index: number, owned: boolean) => {
     if (category !== "condensed") throw new Error(`Unknown owned category: ${category}`);
@@ -35,6 +112,10 @@ import { setGuildShopUpgrade, setQuestRefreshRemaining } from "../guild/guild.js
     return setTotalMemories(number);
 }
 
+(globalThis as any).assignSonicValue = (number: number) => {
+    writeNumber(ABYSS_HANDLES.sonicValue, Math.max(0, number));
+};
+
 (globalThis as any).refreshQuests = () => {
     setQuestRefreshRemaining(0);
 }
@@ -49,4 +130,56 @@ import { setGuildShopUpgrade, setQuestRefreshRemaining } from "../guild/guild.js
     refreshTierOneDerivedState();
     refreshSealedMeridiansDerivedState();
     refreshMatrixDerivedState();
+};
+
+
+(globalThis as any).assignMemorials = setMemorials;
+
+(globalThis as any).assignClockTimeSpent = (number: number) => {
+    setClockOffsetSeconds(number);
+    setClockBrokenAt(isClockBroken() ? Date.now() : 0);
+};
+
+(globalThis as any).resetTimeUpgrades = () => {
+    for (let index = 0; index < TIME_UPGRADES.length; index++) setTimeUpgradeLevel(index, 0);
+    refreshTierOneDerivedState();
+};
+
+(globalThis as any).resetTimeDrained = () => {
+    writeNumber(TIME_HANDLES.storedRealTime, 0);
+    writeNumber(TIME_HANDLES.storedGameTime, 0);
+    writeNumber(TIME_HANDLES.totalRealTime, 0);
+    writeNumber(TIME_HANDLES.totalGameTime, 0);
+};
+
+const debugCondenseBase = createZero();
+(globalThis as any).inspectTime = () => {
+    namedWasm.refreshCondenseGain();
+    if (namedWasm.eq(HANDLES.mana_circle_tier, 0)) writeNumber(debugCondenseBase, 1);
+    else {
+        namedWasm.log10Into(debugCondenseBase, HANDLES.mana);
+        namedWasm.divUS(debugCondenseBase, 44);
+        namedWasm.subUS(debugCondenseBase, 6);
+    }
+    return {
+        drainMode: namedWasm.getTimeDrainMode(),
+        clockBroken: namedWasm.isClockBroken(),
+        worldStopped: namedWasm.isWorldTimeStopped(),
+        gameStopped: namedWasm.isGameTimeStopped(),
+        focusing: namedWasm.isFocusing(),
+        gameSpeed: readString(namedWasm.getGameSpeed()),
+        underlyingGameSpeed: readString(namedWasm.getUnstoppedGameSpeed()),
+        totalRealTimeSeconds: readString(HANDLES.statistics_totalTimePlayed),
+        totalGameTimeSeconds: readString(HANDLES.statistics_gameTimePlayed),
+        mana: readString(HANDLES.mana),
+        condensedMana: readString(HANDLES.condensedMana),
+        baseCondenseGain: readString(debugCondenseBase),
+        finalCondenseGain: readString(SCRATCH_HANDLES.condenseGain),
+        rememberedDawn: { level: timeUpgradeLevel(2), effect: readString(namedWasm.timeUpgradeEffectHandle(2)) },
+        repeatedDawn: { level: timeUpgradeLevel(8), effect: readString(namedWasm.timeUpgradeEffectHandle(8)) },
+        condensedTowerSupply: readString(namedWasm.resonanceInvestmentLogarithmicHandle(5)),
+        effectiveCondensedTowerSupply: readString(namedWasm.effectiveResonanceInvestmentLogarithmicHandle(5)),
+        condensedTowerEffect: readString(namedWasm.resonanceTowerEffectHandle(5, 0.01)),
+        abyssCondensePower: readString(namedWasm.abyssRunCondensePowerHandle()),
+    };
 };

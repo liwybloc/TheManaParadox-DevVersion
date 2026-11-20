@@ -17,6 +17,7 @@ export function condense(): boolean {
     const previousMemories = namedWasm.getTotalMemories();
     resetForCondense();
     namedWasm.completeCondense();
+    if (namedWasm.completeAbyssRun()) namedWasm.setInAbyss(true);
     // not cursed at all trust me... (im lazy)
     let memGained: number = 0;
     if (focused && (memGained = namedWasm.resolveFocusedCondense(Math.random(), memoryChance))) {
@@ -32,7 +33,25 @@ export function condense(): boolean {
     return true;
 }
 
+export function beginAbyssRun(): boolean {
+    if (namedWasm.isFocusing()) return false;
+    if (!namedWasm.beginAbyssRun()) return false;
+    namedWasm.setInAbyss(false);
+    resetForCondense();
+    void saveGame();
+    return true;
+}
+
+export function escapeAbyssRun(): boolean {
+    if (!namedWasm.escapeAbyssRun()) return false;
+    namedWasm.setInAbyss(true);
+    resetForCondense();
+    void saveGame();
+    return true;
+}
+
 export function focus(): boolean {
+    if (!namedWasm.isFocusing() && (namedWasm.isInAbyss() || namedWasm.isAbyssRunActive())) return false;
     if (!namedWasm.toggleFocus()) return false;
     resetForCondense();
     void saveGame();
@@ -41,6 +60,7 @@ export function focus(): boolean {
 }
 
 export function enterCrystal(index: number): boolean {
+    if (namedWasm.isInAbyss() || namedWasm.isAbyssRunActive()) return false;
     if (!namedWasm.enterCrystal(index)) return false;
     namedWasm.setFocusing(false);
     resetForCondense();

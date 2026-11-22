@@ -6,7 +6,7 @@ import { ACHIEVEMENTS } from "@game/game/achievements.js";
 import { CRYSTALS, CRYSTAL_GOALS } from "@game/game/crystals.js";
 import { getTotalMessageTickersSeen, getUniqueMessageTickersSeen } from "@game/game/message_tickers.js";
 import { CONDENSED_UPGRADES, CONDENSED_UPGRADE_PLACEHOLDERS } from "@game/game/condensed.js";
-import { REMEMBRANCE_CONNECTIONS, REMEMBRANCE_LAYOUT, REMEMBRANCE_UPGRADES, REMEMBRANCE_UPGRADE_COUNT, remembrancePrerequisites, remembranceUpgradeCost } from "@game/game/remembrance.js";
+import { REMEMBRANCE_CONNECTIONS, REMEMBRANCE_LAYOUT, REMEMBRANCE_UPGRADES, REMEMBRANCE_UPGRADE_COUNT, remembrancePrerequisites } from "@game/game/remembrance.js";
 import { TABS } from "@game/config/tabs.js";
 import { PROGRESSION_GOALS } from "@game/config/goals.js";
 import { ADVANCED_COMBAT_SPELL_COST_HANDLES, GUILD_RANKS, POTION_SPEED_II_TIMER_HANDLES, POTION_SPEED_III_TIMER_HANDLES, POTION_SPEED_TIMER_HANDLES } from "@game/guild/guild.js";
@@ -954,7 +954,7 @@ function updateCondensedDisplay() {
         upgrade.purchased = namedWasm.hasRemembranceUpgrade(upgrade.index);
         const purchased = remembrance.value.upgrades.filter((entry) => entry.purchased).map((entry) => entry.index + 1);
         upgrade.available = upgrade.index !== 13
-            && namedWasm.getMemorials() >= remembranceUpgradeCost(upgrade.index + 1)
+            && namedWasm.getMemorials() >= namedWasm.remembranceUpgradeCost(upgrade.index + 1)
             && remembrancePrerequisites(upgrade.index + 1).every((required) => purchased.includes(required));
         if (!upgrade.costFormatted) {
             namedWasm.writeNumber(SCRATCH_HANDLES.remembranceCostFormat, upgrade.cost);

@@ -20,7 +20,9 @@ export const REMEMBRANCE_CONNECTIONS = [
 ] as const;
 
 export const REMEMBRANCE_UPGRADE_COUNT = REMEMBRANCE_LAYOUT.length;
-export function remembranceUpgradeCost(upgradeNumber: number): number {
+
+/** [WASM] */
+export function remembranceUpgradeCost(upgradeNumber: i32): i32 {
     switch (upgradeNumber) {
         case 1: case 2: return 1;
 
@@ -40,8 +42,6 @@ export function remembranceUpgradeCost(upgradeNumber: number): number {
 
         case 24: case 25: case 26: return 1_000;
 
-        case 27: case 28: return 1_500;
-
         case 29: case 31: case 32: case 33: return 2_500;
 
         case 34: case 35: return 5_000;
@@ -49,6 +49,8 @@ export function remembranceUpgradeCost(upgradeNumber: number): number {
         default: return 25_000;
     }
 }
+/** [/WASM] */
+
 export const REMEMBRANCE_DESCRIPTIONS = [
     "Condensed Mana gain is increased by 25%", // 1
     "Mana production is increased by 25%", // 2
@@ -161,28 +163,11 @@ export function setRemembranceUpgrade(index: i32, purchased: bool): void {
     remembranceUpgrades[index] = purchased ? 1 : 0;
 }
 
-function remembranceUpgradeCostValue(index: i32): i32 {
-    switch (index) {
-        case 0: case 1: return 1;
-        case 2: case 3: case 4: return 3;
-        case 5: case 6: return 9;
-        case 7: case 8: case 9: return 15;
-        case 10: return 50;
-        case 11: case 12: case 13: case 14: case 15: return 100;
-        case 16: case 17: case 18: return 200;
-        case 19: case 20: case 21: case 22: return 500;
-        case 23: case 24: case 25: return 1_000;
-        case 26: case 27: return 1_500;
-        case 28: case 29: return 2_500;
-        default: return 10_000;
-    }
-}
-
 export function remembranceUpgradeCostHandle(): i32 {
     writeNumber(scratch.remembranceCostExponent, memorials);
     for (let index: i32 = 0; index < REMEMBRANCE_UPGRADE_COUNT_WASM; index++) {
         if (remembranceUpgrades[index] === 0) continue;
-        addUS(scratch.remembranceCostExponent, remembranceUpgradeCostValue(index));
+        addUS(scratch.remembranceCostExponent, remembranceUpgradeCost(index + 1));
     }
     powInto(scratch.remembranceCost, 10, scratch.remembranceCostExponent);
     return scratch.remembranceCost;
@@ -239,7 +224,7 @@ export function buyRemembranceUpgrade(index: i32, cost: i32): bool {
 }
 export function resetRemembranceUpgrades(): void {
     for (let index: i32 = 0; index < REMEMBRANCE_UPGRADE_COUNT_WASM; index++) {
-        if (remembranceUpgrades[index] !== 0) memorials += remembranceUpgradeCostValue(index);
+        if (remembranceUpgrades[index] !== 0) memorials += remembranceUpgradeCost(index + 1);
         remembranceUpgrades[index] = 0;
     }
 }

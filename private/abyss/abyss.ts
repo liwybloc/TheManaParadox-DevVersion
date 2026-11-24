@@ -24,8 +24,8 @@ export function setTimeDiscovery(value: i32): void { timeDiscovery = value < 0 ?
 export function canDiscoverTime(): bool {
     if (timeDiscovery !== 0 || highestAbyssDepthCompleted <= 7_000 || !abyssRunActive || abyssRunDepth <= 7_750) return false;
     const value = totalSonicValueLogarithmicHandle();
-    writeNumber(abyss.calculationA, 0.005);
-    return gt(value, abyss.calculationA);
+    writeNumber(abyss.calculationA, 0.0045);
+    return gte(value, abyss.calculationA);
 }
 
 let abyssDepth: f64 = ABYSS_MINIMUM_DEPTH;
